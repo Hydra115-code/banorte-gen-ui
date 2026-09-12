@@ -1,0 +1,46 @@
+.page {
+  min-height: 100vh;
+  padding: clamp(1rem, 3vw, 3rem);
+  background: var(--color-background, #f6f4f1);
+  color: var(--color-text, #1f1f1f);
+}
+
+.header {
+  width: min(100%, 76rem);
+  margin: 0 auto 2rem;
+}
+
+.header h1,
+.header p {
+  margin-block: 0.35rem;
+}
+
+.eyebrow {
+  color: #a6192e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gallery {
+  display: grid;
+  width: min(100%, 76rem);
+  margin-inline: auto;
+  gap: 1.5rem;
+}
+
+.fixture {
+  overflow: hidden;
+  padding: clamp(1rem, 2vw, 2rem);
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 1rem;
+  background: white;
+  box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 6%);
+}
+
+.fixture > h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  color: #6b1726;
+}

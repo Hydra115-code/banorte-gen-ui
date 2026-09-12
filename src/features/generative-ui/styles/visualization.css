@@ -1,0 +1,94 @@
+.ui-visualization {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+.ui-visualization--sm { --chart-height: 16rem; }
+.ui-visualization--md { --chart-height: 24rem; }
+.ui-visualization--lg { --chart-height: 34rem; }
+
+.ui-visualization__chart {
+  width: 100%;
+  height: var(--chart-height, 24rem);
+  min-height: 14rem;
+  animation: visualization-enter 680ms var(--ease-standard) both;
+}
+
+.ui-visualization__data {
+  margin-top: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.ui-visualization__data summary {
+  width: fit-content;
+  min-height: 2.75rem;
+  padding-block: 0.75rem;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.ui-visualization__data-viewport {
+  max-width: 100%;
+  overflow-x: auto;
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  scrollbar-width: thin;
+}
+
+.ui-visualization__data table {
+  width: 100%;
+  min-width: 28rem;
+  color: var(--color-text-primary);
+  border-collapse: collapse;
+}
+
+.ui-visualization__data th,
+.ui-visualization__data td {
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+  border-bottom: var(--border-subtle);
+}
+
+.ui-visualization__data th {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-bold);
+  background: var(--color-surface-secondary);
+}
+
+.ui-visualization__data tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ui-visualization__data > p {
+  margin: var(--space-2) 0 0;
+}
+
+.ui-visualization__state {
+  display: grid;
+  place-items: center;
+  min-height: 14rem;
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  text-align: center;
+  background: var(--color-surface-secondary);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+@keyframes visualization-enter {
+  from { opacity: 0; transform: translateY(0.5rem) scaleY(0.97); transform-origin: bottom; }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@media (max-width: 40rem) {
+  .ui-visualization--sm { --chart-height: 14rem; }
+  .ui-visualization--md { --chart-height: 18rem; }
+  .ui-visualization--lg { --chart-height: 22rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-visualization__chart { animation: none; }
+}

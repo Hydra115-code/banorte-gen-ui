@@ -1,0 +1,51 @@
+{
+  "name": "moc-front",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "contracts:build": "pnpm --dir packages/contracts build",
+    "contracts:verify": "pnpm contracts:build && node --test scripts/contracts.compatibility.test.mjs",
+    "protocol:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/agent-stream-protocol.test.ts && node scripts/agent-stream-protocol.test.ts",
+    "fixtures:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/f0-contract-fixtures.test.ts && node scripts/f0-contract-fixtures.test.ts",
+    "session:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/session-snapshot-storage.test.ts && node scripts/session-snapshot-storage.test.ts",
+    "runtime:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/runtime-capabilities.test.ts && node scripts/runtime-capabilities.test.ts",
+    "dynamic-ui:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/dynamic-ui-continuity.test.ts && node scripts/dynamic-ui-continuity.test.ts",
+    "interaction:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/interaction-continuity.test.ts && node scripts/interaction-continuity.test.ts",
+    "banking:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/personal-banking-scenarios.test.ts && node scripts/personal-banking-scenarios.test.ts",
+    "education:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/financial-education-flow.test.ts && node scripts/financial-education-flow.test.ts",
+    "payment:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/payment-preparation-safety.test.ts && node scripts/payment-preparation-safety.test.ts",
+    "continuity:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/patch-continuity-recovery.test.ts && node scripts/patch-continuity-recovery.test.ts",
+    "quality:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/frontend-security-accessibility.test.ts && node scripts/frontend-security-accessibility.test.ts",
+    "performance:verify": "pnpm contracts:build && tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/frontend-performance.test.ts && node scripts/frontend-performance.test.ts",
+    "state-machine:verify": "tsc --ignoreConfig --noEmit --strict --skipLibCheck --types node --module nodenext --moduleResolution nodenext --target ES2022 --allowImportingTsExtensions scripts/experience-state-machine.test.ts && node scripts/experience-state-machine.test.ts",
+    "build": "pnpm typecheck && next build --webpack",
+    "dev": "pnpm contracts:build && next dev",
+    "start": "next start",
+    "typecheck": "pnpm contracts:build && tsc --noEmit"
+  },
+  "dependencies": {
+    "@banorte/contracts": "workspace:*",
+    "@ai-sdk/react": "4.0.96",
+    "ai": "7.0.93",
+    "echarts": "^6.1.0",
+    "motion": "^13.2.0",
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^3.25.76",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3"
+  }
+}

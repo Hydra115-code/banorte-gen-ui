@@ -1,0 +1,30 @@
+.theme-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-elevated);
+  border: var(--border-subtle);
+  border-radius: var(--radius-full);
+  transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+
+@media (hover: hover) {
+  .theme-toggle:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-border-strong);
+    transform: translateY(-1px);
+  }
+}
+
+.theme-toggle svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}

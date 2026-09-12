@@ -1,0 +1,64 @@
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-brand-primary: #d90046;
+  --color-brand-hover: #bd003d;
+  --color-brand-soft: rgb(245 0 79 / 7%);
+  --color-brand-border: rgb(245 0 79 / 20%);
+  --color-text-on-brand: #ffffff;
+  --color-surface-page: #f3f4f6;
+  --color-surface-primary: #ffffff;
+  --color-surface-secondary: #f8f8fa;
+  --color-surface-elevated: #ffffff;
+  --color-text-primary: #17171a;
+  --color-text-secondary: #62626d;
+  --color-text-muted: #6f6f79;
+  --color-border-subtle: #e3e4e8;
+  --color-border-strong: #ced0d6;
+  --color-status-success: #147d45;
+  --color-status-warning: #a46200;
+  --color-status-error: #b93836;
+  --color-status-info: #2563a6;
+  --color-financial-positive: #147d45;
+  --color-financial-negative: #b93836;
+  --color-financial-neutral: #62626d;
+  --color-financial-warning: #a46200;
+  --color-focus-ring: rgb(245 0 79 / 24%);
+  --color-canvas-dot: rgb(98 98 109 / 23%);
+  --color-canvas-glow: rgb(255 255 255 / 24%);
+  --color-success-ring: rgb(20 125 69 / 10%);
+  --color-error-soft: rgb(185 56 54 / 7%);
+  --color-error-border: rgb(185 56 54 / 20%);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-brand-primary: #ff3b74;
+  --color-brand-hover: #ff5b89;
+  --color-brand-soft: rgb(255 59 116 / 12%);
+  --color-brand-border: rgb(255 59 116 / 30%);
+  --color-text-on-brand: #101014;
+  --color-surface-page: #101014;
+  --color-surface-primary: #18181e;
+  --color-surface-secondary: #202027;
+  --color-surface-elevated: #25252d;
+  --color-text-primary: #f4f4f6;
+  --color-text-secondary: #b9b9c2;
+  --color-text-muted: #8e8e99;
+  --color-border-subtle: #2e2e37;
+  --color-border-strong: #454550;
+  --color-status-success: #43bf78;
+  --color-status-warning: #e7a33b;
+  --color-status-error: #f0716d;
+  --color-status-info: #71a7e3;
+  --color-financial-positive: #43bf78;
+  --color-financial-negative: #f0716d;
+  --color-financial-neutral: #b9b9c2;
+  --color-financial-warning: #e7a33b;
+  --color-focus-ring: rgb(255 59 116 / 32%);
+  --color-canvas-dot: rgb(185 185 194 / 18%);
+  --color-canvas-glow: rgb(37 37 45 / 34%);
+  --color-success-ring: rgb(67 191 120 / 13%);
+  --color-error-soft: rgb(240 113 109 / 10%);
+  --color-error-border: rgb(240 113 109 / 28%);
+}
