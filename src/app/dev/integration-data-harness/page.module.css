@@ -1,0 +1,96 @@
+.page {
+  min-height: 100vh;
+  padding: clamp(1rem, 3vw, 3rem);
+  background: var(--color-background, #f6f4f1);
+  color: var(--color-text, #1f1f1f);
+}
+
+.header,
+.panel {
+  width: min(100%, 58rem);
+  margin-inline: auto;
+}
+
+.header {
+  margin-bottom: 1.5rem;
+}
+
+.header h1,
+.header p,
+.panel h2 {
+  margin-block: 0.35rem;
+}
+
+.eyebrow {
+  color: #a6192e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panel {
+  margin-bottom: 1rem;
+  padding: clamp(1rem, 2vw, 2rem);
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 1rem;
+  background: white;
+  box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 6%);
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem;
+  align-items: end;
+  margin-top: 1rem;
+}
+
+.form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.form input,
+.form button {
+  min-height: 2.75rem;
+  border-radius: 0.65rem;
+  font: inherit;
+}
+
+.form input {
+  padding-inline: 0.75rem;
+  border: 1px solid #b8b1ad;
+}
+
+.form button {
+  border: 0;
+  padding-inline: 1rem;
+  background: #a6192e;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.form button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.note {
+  margin-bottom: 0;
+  color: #625b57;
+  font-size: 0.82rem;
+}
+
+.success {
+  color: #12633a;
+  font-weight: 700;
+}
+
+.error {
+  color: #9b1c31;
+  font-weight: 650;
+}

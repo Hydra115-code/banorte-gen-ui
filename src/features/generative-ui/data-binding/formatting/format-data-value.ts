@@ -16,6 +16,16 @@ interface FormatDataValueOptions {
 }
 
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+const contractualFinancialAmountPattern = /^-?\d{1,16}(?:\.\d{1,2})?$/;
+
+function financialDisplayNumber(value: DataValue) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && contractualFinancialAmountPattern.test(value)) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  throw new TypeError("currency requiere un importe financiero válido");
+}
 
 export function formatDataValue(
   value: DataValue,
@@ -25,8 +35,8 @@ export function formatDataValue(
   if (value === null) return null;
 
   if (format === "currency") {
-    if (typeof value !== "number") throw new TypeError("currency requiere un número");
-    return new Intl.NumberFormat(options.locale, { style: "currency", currency: options.currency }).format(value);
+    return new Intl.NumberFormat(options.locale, { style: "currency", currency: options.currency })
+      .format(financialDisplayNumber(value));
   }
 
   if (format === "number") {
