@@ -94,6 +94,7 @@ export const streamEventSchema = z.discriminatedUnion("type", [
 
 export const systemStatusSchema = z.object({
   ...versionField,
+  contractFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   status: z.enum(["ok", "degraded", "unavailable"]),
   backend: z.enum(["ready", "unavailable"]),
   agent: z.enum(["ready", "unavailable"]),

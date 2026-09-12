@@ -9,14 +9,78 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./binding": {
+      "types": "./dist/generative-ui/data-binding/schemas/binding-schema.d.ts",
+      "import": "./dist/generative-ui/data-binding/schemas/binding-schema.js"
+    },
+    "./data-registry": {
+      "types": "./dist/generative-ui/data-binding/schemas/data-registry-schema.d.ts",
+      "import": "./dist/generative-ui/data-binding/schemas/data-registry-schema.js"
+    },
+    "./data-patch": {
+      "types": "./dist/generative-ui/data-binding/schemas/data-patch-schema.d.ts",
+      "import": "./dist/generative-ui/data-binding/schemas/data-patch-schema.js"
+    },
+    "./node-id": {
+      "types": "./dist/generative-ui/schemas/node-id.d.ts",
+      "import": "./dist/generative-ui/schemas/node-id.js"
+    },
+    "./content-node": {
+      "types": "./dist/generative-ui/schemas/content-node.d.ts",
+      "import": "./dist/generative-ui/schemas/content-node.js"
+    },
+    "./interaction-node": {
+      "types": "./dist/generative-ui/schemas/interaction-node.d.ts",
+      "import": "./dist/generative-ui/schemas/interaction-node.js"
+    },
+    "./logic-node": {
+      "types": "./dist/generative-ui/schemas/logic-node.d.ts",
+      "import": "./dist/generative-ui/schemas/logic-node.js"
+    },
+    "./layout-node": {
+      "types": "./dist/generative-ui/schemas/layout-node.d.ts",
+      "import": "./dist/generative-ui/schemas/layout-node.js"
+    },
+    "./table-node": {
+      "types": "./dist/generative-ui/schemas/table-node.d.ts",
+      "import": "./dist/generative-ui/schemas/table-node.js"
+    },
+    "./ui-specification": {
+      "types": "./dist/generative-ui/schemas/ui-specification.d.ts",
+      "import": "./dist/generative-ui/schemas/ui-specification.js"
+    },
+    "./visualization-node": {
+      "types": "./dist/generative-ui/schemas/visualization-node.d.ts",
+      "import": "./dist/generative-ui/schemas/visualization-node.js"
+    },
+    "./ui-patch": {
+      "types": "./dist/generative-ui/patches/ui-patch-schema.d.ts",
+      "import": "./dist/generative-ui/patches/ui-patch-schema.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    },
+    "./financial-domain": {
+      "types": "./dist/financial-domain.d.ts",
+      "import": "./dist/financial-domain.js"
+    },
+    "./fixtures": {
+      "types": "./dist/fixtures.d.ts",
+      "import": "./dist/fixtures.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
+    "contract:fingerprint": "node scripts/generate-contract-fingerprint.mjs",
+    "prebuild": "pnpm contract:fingerprint",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "pretypecheck": "pnpm contract:fingerprint",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm build && node --test tests/contracts.test.mjs"
   },
   "dependencies": {
     "zod": "^3.25.76"
