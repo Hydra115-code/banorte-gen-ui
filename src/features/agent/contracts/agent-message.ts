@@ -97,6 +97,13 @@ export const agentErrorSchema = z.object({
   correlationId: z.string().uuid().optional(),
 }).strict();
 
+export const agentTextEvidenceSchema = z.object({
+  responseMode: z.literal("text"),
+  mcpResultCount: z.number().int().nonnegative().max(20),
+  suppressedUiEventCount: z.number().int().nonnegative().max(500),
+  textDeltaCount: z.number().int().nonnegative().max(10_000),
+}).strict();
+
 export type AgentUIData = {
   session: z.infer<typeof agentSessionSchema>;
   trace: z.infer<typeof agentTraceSchema>;
@@ -112,6 +119,7 @@ export type AgentUIData = {
   runtimeDiagnostics: z.infer<typeof agentRuntimeDiagnosticsSchema>;
   interaction: z.infer<typeof agentInteractionStateSchema>;
   agentError: z.infer<typeof agentErrorSchema>;
+  textEvidence: z.infer<typeof agentTextEvidenceSchema>;
 };
 
 export type AgentUIMessage = UIMessage<unknown, AgentUIData>;
@@ -133,4 +141,5 @@ export const agentDataPartSchemas = {
   runtimeDiagnostics: agentRuntimeDiagnosticsSchema,
   interaction: agentInteractionStateSchema,
   agentError: agentErrorSchema,
+  textEvidence: agentTextEvidenceSchema,
 };

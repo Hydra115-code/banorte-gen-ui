@@ -23,7 +23,7 @@ export class HttpAIProvider implements AIProvider {
         sessionId: request.sessionId,
         correlationId: request.correlationId,
         provider: this.id,
-        responseMode: "complete-ui",
+        responseMode: request.responseMode ?? "complete-ui",
         uiPlanner: request.planner,
         ...(request.sessionState ? { sessionState: request.sessionState } : {}),
         ...(request.input.type === "prompt"
@@ -32,6 +32,8 @@ export class HttpAIProvider implements AIProvider {
         ...(request.repair ? { repair: request.repair } : {}),
       },
       signal: request.signal,
+      ...(request.accessToken ? { accessToken: request.accessToken } : {}),
+      ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
       fetchImplementation: this.fetchImplementation,
     })) {
       if (!("version" in event)) {

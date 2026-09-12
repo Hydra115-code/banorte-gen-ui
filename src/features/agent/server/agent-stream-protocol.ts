@@ -6,11 +6,13 @@ import {
 
 export type AgentApiErrorCode =
   | "agent_api_rejected"
+  | "agent_api_timeout"
   | "agent_api_unavailable"
   | "agent_stream_event_invalid"
   | "agent_stream_event_too_large"
   | "agent_stream_format_unsupported"
   | "agent_stream_missing"
+  | "agent_stream_identity_mismatch"
   | "agent_stream_sequence_invalid"
   | "agent_stream_too_many_events"
   | "contract_version_unsupported";
@@ -33,6 +35,25 @@ export class AgentApiError extends Error {
 
 export interface CanonicalStreamState {
   lastSequence?: number;
+}
+
+export function validateAgentStreamIdentity(
+  event: Pick<TextAgentStreamEvent, "sessionId" | "correlationId">,
+  expected: { sessionId: string; correlationId: string },
+) {
+  if (event.sessionId !== expected.sessionId || event.correlationId !== expected.correlationId) {
+    throw new AgentApiError(
+      "El Agent API respondió con una identidad de sesión distinta",
+      "agent_stream_identity_mismatch",
+      false,
+    );
+  }
+}
+
+export function createAgentTransportFailure(callerAborted: boolean, timeoutAborted: boolean) {
+  if (callerAborted) return new DOMException("Solicitud cancelada", "AbortError");
+  if (timeoutAborted) return new AgentApiError("El Agent API agotó el tiempo de espera", "agent_api_timeout");
+  return new AgentApiError("No fue posible contactar al Agent API", "agent_api_unavailable");
 }
 
 function hasVersion(value: unknown): value is Record<string, unknown> & { version: unknown } {

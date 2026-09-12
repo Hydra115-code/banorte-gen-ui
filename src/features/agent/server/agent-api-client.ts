@@ -8,7 +8,9 @@ import {
 import { agentApiEventSchema, type AgentApiEvent } from "./agent-api-event";
 import {
   AgentApiError,
+  createAgentTransportFailure,
   parseCanonicalStreamEvent,
+  validateAgentStreamIdentity,
   type CanonicalStreamState,
 } from "./agent-stream-protocol";
 import type { AgentApiConfig } from "./agent-api-config";
@@ -39,15 +41,21 @@ export type AgentApiRequest = AgentApiRequestBase & (
 );
 
 interface StreamAgentOptions {
+  accessToken?: string;
   config: AgentApiConfig;
   request: AgentApiRequest;
   signal: AbortSignal;
   fetchImplementation?: typeof fetch;
+  timeoutMs?: number;
 }
 
 export type AgentApiWireEvent = TextAgentStreamEvent | AgentApiEvent;
 
-function parseEventLine(line: string, streamState: CanonicalStreamState): AgentApiWireEvent {
+function parseEventLine(
+  line: string,
+  streamState: CanonicalStreamState,
+  expected: { sessionId: string; correlationId: string },
+): AgentApiWireEvent {
   let value: unknown;
   try {
     value = JSON.parse(line) as unknown;
@@ -60,7 +68,10 @@ function parseEventLine(line: string, streamState: CanonicalStreamState): AgentA
   }
 
   const canonicalEvent = parseCanonicalStreamEvent(value, streamState);
-  if (canonicalEvent) return canonicalEvent;
+  if (canonicalEvent) {
+    validateAgentStreamIdentity(canonicalEvent, expected);
+    return canonicalEvent;
+  }
 
   try {
     return agentApiEventSchema.parse(value);
@@ -73,7 +84,10 @@ function parseEventLine(line: string, streamState: CanonicalStreamState): AgentA
   }
 }
 
-async function* readEventStream(response: Response): AsyncGenerator<AgentApiWireEvent> {
+async function* readEventStream(
+  response: Response,
+  expected: { sessionId: string; correlationId: string },
+): AsyncGenerator<AgentApiWireEvent> {
   if (!response.body) {
     throw new AgentApiError("El Agent API no devolvió un stream", "agent_stream_missing");
   }
@@ -111,12 +125,12 @@ async function* readEventStream(response: Response): AsyncGenerator<AgentApiWire
             false,
           );
         }
-        yield parseEventLine(line, streamState);
+        yield parseEventLine(line, streamState, expected);
       }
 
       if (done) {
         const finalLine = buffer.trim();
-        if (finalLine) yield parseEventLine(finalLine, streamState);
+        if (finalLine) yield parseEventLine(finalLine, streamState, expected);
         hasFinished = true;
         break;
       }
@@ -128,18 +142,21 @@ async function* readEventStream(response: Response): AsyncGenerator<AgentApiWire
 }
 
 export async function* streamAgent({
+  accessToken,
   config,
   request,
   signal,
   fetchImplementation = fetch,
+  timeoutMs = AGENT_TIMEOUT_MS,
 }: StreamAgentOptions): AsyncGenerator<AgentApiWireEvent> {
-  const timeoutSignal = AbortSignal.timeout(AGENT_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(Math.max(1, Math.min(timeoutMs, AGENT_TIMEOUT_MS)));
   const combinedSignal = AbortSignal.any([signal, timeoutSignal]);
   const headers = new Headers({
     Accept: "application/x-ndjson",
     "Content-Type": "application/json",
   });
-  if (config.token) headers.set("Authorization", `Bearer ${config.token}`);
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  else if (config.token) headers.set("Authorization", `Bearer ${config.token}`);
   const normalizedRequest = {
     ...request,
     version: request.version ?? "1",
@@ -158,8 +175,7 @@ export async function* streamAgent({
       signal: combinedSignal,
     });
   } catch {
-    if (signal.aborted) throw new DOMException("Solicitud cancelada", "AbortError");
-    throw new AgentApiError("No fue posible contactar al Agent API", "agent_api_unavailable");
+    throw createAgentTransportFailure(signal.aborted, timeoutSignal.aborted);
   }
 
   if (!response.ok) {
@@ -175,5 +191,17 @@ export async function* streamAgent({
     );
   }
 
-  yield* readEventStream(response);
+  try {
+    yield* readEventStream(response, {
+      sessionId: normalizedRequest.sessionId,
+      correlationId: normalizedRequest.correlationId,
+    });
+  } catch (error) {
+    if (error instanceof AgentApiError) throw error;
+    const failure = createAgentTransportFailure(signal.aborted, timeoutSignal.aborted);
+    if (failure instanceof AgentApiError && failure.code === "agent_api_unavailable") {
+      throw new AgentApiError("El stream del Agent API se interrumpió", "agent_api_unavailable");
+    }
+    throw failure;
+  }
 }

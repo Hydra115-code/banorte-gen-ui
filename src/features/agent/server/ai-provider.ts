@@ -10,6 +10,7 @@ export type AIProviderInput =
   | { type: "ui-event"; intent: AgentUIIntent };
 
 export interface AIProviderRequest {
+  accessToken?: string;
   input: AIProviderInput;
   signal: AbortSignal;
   sessionId: string;
@@ -17,6 +18,8 @@ export interface AIProviderRequest {
   planner: UIPlannerContext;
   sessionState?: SessionReference;
   repair?: UIRepairContext;
+  responseMode?: "text" | "complete-ui";
+  timeoutMs?: number;
 }
 
 export interface AIProvider {
