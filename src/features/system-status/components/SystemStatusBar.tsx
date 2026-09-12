@@ -37,7 +37,7 @@ export function SystemStatusBar({ loadStatus = requestSystemStatus }: SystemStat
 
   if (error) {
     return (
-      <section className="system-status system-status--error" aria-label="Estado del sistema">
+      <section className="system-status system-status--error" aria-label="Estado del sistema" data-connection="disconnected">
         <span>{error}</span>
         <button type="button" onClick={retry}>Reintentar</button>
       </section>
@@ -45,15 +45,23 @@ export function SystemStatusBar({ loadStatus = requestSystemStatus }: SystemStat
   }
 
   if (!status) {
-    return <section className="system-status" aria-label="Estado del sistema" aria-busy="true">Comprobando conexión…</section>;
+    return <section className="system-status" aria-label="Estado del sistema" aria-busy="true" data-connection="checking">Comprobando conexión…</section>;
   }
 
   return (
-    <section className="system-status" aria-label="Estado del sistema" data-health={status.status}>
+    <section
+      className="system-status"
+      aria-label="Estado del sistema"
+      data-connection="connected"
+      data-contract-fingerprint={status.contractFingerprint}
+      data-health={status.status}
+    >
       <Capability label="Backend conectado" isReady={status.backend === "ready"} />
       <Capability label="MCP disponible" isReady={status.mcp === "ready"} />
       <Capability label="Agente listo" isReady={status.agent === "ready"} />
-      <span className="system-status__version">Contrato v{status.version}</span>
+      <span className="system-status__version" title={`Fingerprint ${status.contractFingerprint}`}>
+        Contrato v{status.version} · {status.contractFingerprint.slice(0, 8)}
+      </span>
     </section>
   );
 }
