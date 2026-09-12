@@ -2,7 +2,7 @@ import {
   dataRegistrySchema,
   type DataRegistryValue,
   type DataValue,
-} from "../schemas/data-registry-schema";
+} from "../schemas/data-registry-schema.ts";
 
 function cloneAndFreeze(value: DataValue): DataValue {
   if (value === null || typeof value !== "object") return value;

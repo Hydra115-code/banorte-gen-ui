@@ -8,6 +8,7 @@ import {
 } from "./local-ui-event";
 
 const UIEventContext = createContext<LocalUIEventBus | null>(null);
+const TextDraftContext = createContext<Map<string, string> | null>(null);
 const EMPTY_PENDING_NODE_IDS: ReadonlySet<string> = new Set();
 const PendingNodeContext = createContext<ReadonlySet<string>>(EMPTY_PENDING_NODE_IDS);
 
@@ -19,16 +20,33 @@ interface UIEventProviderProps {
 
 export function UIEventProvider({ children, onEvent, pendingNodeIds = EMPTY_PENDING_NODE_IDS }: UIEventProviderProps) {
   const parentEventBus = useContext(UIEventContext);
+  const parentTextDrafts = useContext(TextDraftContext);
   const [localEventBus] = useState(() => new LocalUIEventBus());
+  const [textDrafts] = useState(() => new Map<string, string>());
   const eventBus = parentEventBus ?? localEventBus;
 
   useEffect(() => onEvent ? eventBus.subscribe(onEvent) : undefined, [eventBus, onEvent]);
 
   return (
     <UIEventContext.Provider value={eventBus}>
-      <PendingNodeContext.Provider value={pendingNodeIds}>{children}</PendingNodeContext.Provider>
+      <TextDraftContext.Provider value={parentTextDrafts ?? textDrafts}>
+        <PendingNodeContext.Provider value={pendingNodeIds}>{children}</PendingNodeContext.Provider>
+      </TextDraftContext.Provider>
     </UIEventContext.Provider>
   );
+}
+
+export function useTextDraft(key: string, initialValue: string) {
+  const drafts = useContext(TextDraftContext);
+  const [value, setValue] = useState(() => drafts?.get(key) ?? initialValue);
+  const update = (nextValue: string) => {
+    if (drafts) {
+      if (!drafts.has(key) && drafts.size >= 128) drafts.delete(drafts.keys().next().value!);
+      drafts.set(key, nextValue);
+    }
+    setValue(nextValue);
+  };
+  return [value, update] as const;
 }
 
 export function useNodePending(sourceId: string | undefined) {

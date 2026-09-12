@@ -62,6 +62,8 @@ test("la identidad cambia con valor o revisión, pero no depende del correlation
 });
 
 test("separa visuales, simulaciones, análisis y acciones financieras", () => {
+  assert.deepEqual(classifyInteractionEvent("form.value.changed"), { kind: "visual", delivery: "local" });
+  assert.deepEqual(classifyInteractionEvent("form.submit"), { kind: "analysis", delivery: "agent" });
   assert.deepEqual(classifyInteractionEvent("ui.tab.changed"), { kind: "visual", delivery: "local" });
   assert.deepEqual(classifyInteractionEvent("ui.section.regenerate"), { kind: "analysis", delivery: "agent" });
   assert.deepEqual(classifyInteractionEvent("savings.monthly.changed"), { kind: "simulation", delivery: "agent" });
@@ -77,4 +79,16 @@ test("el provider usa registro síncrono, correlación y reintento del intent", 
   assert.match(provider, /lastInteractionIntentRef\.current/u);
   assert.match(provider, /dispatchAgentInteraction\(intent\)/u);
   assert.match(provider, /classifyInteractionEvent\(event\.name\)/u);
+});
+
+test("el diagnóstico obsoleto se limita al harness en desarrollo y a simulaciones de la misma sesión", () => {
+  const provider = readFileSync(new URL("../src/features/agent/components/AgentSessionProvider.tsx", import.meta.url), "utf8");
+  assert.match(provider, /process\.env\.NODE_ENV !== "development" \|\| window\.location\.pathname !== "\/dev\/ui-interaction-harness"/u);
+  assert.match(provider, /previous\.sessionId !== sessionIdRef\.current/u);
+  assert.match(provider, /classifyInteractionEvent\(previous\.event\.name\)\.kind !== "simulation"/u);
+  assert.match(provider, /previous\.interfaceRevision >=/u);
+  const events = readFileSync(new URL("../src/features/generative-ui/interactions/events/UIEventProvider.tsx", import.meta.url), "utf8");
+  assert.match(events, /parentTextDrafts \?\? textDrafts/u);
+  const canvas = readFileSync(new URL("../src/features/workspace/components/GenerativeCanvas.tsx", import.meta.url), "utf8");
+  assert.match(canvas, /<UIEventProvider key=\{activeAnalysisId\}>/u);
 });

@@ -5,6 +5,7 @@ const APPROXIMATE_CHARACTERS_PER_TOKEN = 4;
 export interface GenerationMilestones {
   promptSubmittedAt: number;
   requestReceivedAt: number;
+  firstEventAt?: number;
   agentStartedAt?: number;
   firstMcpRequestAt?: number;
   firstMcpResultAt?: number;
@@ -66,6 +67,10 @@ export class GenerationObserver {
 
   markAgentStarted() {
     this.#milestones.agentStartedAt ??= this.#now();
+  }
+
+  markFirstEvent() {
+    this.#milestones.firstEventAt ??= this.#now();
   }
 
   observe(event: ValidatedAgentEvent) {

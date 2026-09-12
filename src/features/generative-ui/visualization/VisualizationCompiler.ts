@@ -259,7 +259,14 @@ export function compileVisualizationOption(
     color: theme.palette,
     backgroundColor: "transparent",
     textStyle: { color: theme.text, fontFamily: "inherit" },
-    grid: spec.mark === "donut" ? undefined : { top: 40, right: 24, bottom: 48, left: 56, containLabel: true },
+    grid: spec.mark === "donut" ? undefined : {
+      top: 40,
+      right: 24,
+      bottom: 48,
+      left: 56,
+      outerBoundsMode: "same",
+      outerBoundsContain: "axisLabel",
+    },
     legend: {
       show: spec.legend?.show ?? Boolean(spec.encoding.group),
       textStyle: { color: theme.mutedText },

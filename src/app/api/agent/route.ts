@@ -4,8 +4,9 @@ import {
   safeValidateUIMessages,
   type UIMessageStreamWriter,
 } from "ai";
+import { NextRequest } from "next/server";
 import { z } from "zod";
-import { sessionReferenceSchema, type SessionReference } from "@banorte/contracts";
+import { errorPayloadSchema, sessionReferenceSchema, type SessionReference } from "@banorte/contracts";
 import {
   agentDataPartSchemas,
   agentPromptSchema,
@@ -22,6 +23,7 @@ import { createUIPatchState, type UIPatchState } from "@/features/generative-ui/
 import { UI_PLANNER_CONTEXT } from "@/features/agent/planner/ui-planner";
 import { GenerationObserver } from "@/features/agent/performance/generation-observer";
 import { MAX_AGENT_REQUEST_BYTES } from "@/shared/security/request-limits";
+import { readSessionCookies } from "@/features/auth/server/session-cookies";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -197,19 +199,24 @@ function writeAgentEvent(
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const input = await parseAgentRequest(request);
   if (!input) {
-    return Response.json({ error: "Solicitud inválida" }, { status: 400 });
-  }
-
-  const provider = getConfiguredAIProvider();
-  if (!provider) {
-    return Response.json({ error: "Proveedor de IA no configurado" }, { status: 503 });
+    return routeError(400, "invalid_request", "Solicitud inválida", crypto.randomUUID());
   }
 
   const sessionId = input.type === "prompt" ? (input.session?.id ?? crypto.randomUUID()) : input.intent.sessionId;
   const correlationId = input.type === "prompt" ? crypto.randomUUID() : input.intent.correlationId;
+  const { accessToken } = readSessionCookies(request);
+  if (!accessToken) {
+    return routeError(401, "authentication_required", "Autenticación requerida", correlationId);
+  }
+
+  const provider = getConfiguredAIProvider();
+  if (!provider) {
+    return routeError(503, "agent_not_configured", "El agente no está configurado", correlationId);
+  }
+
   const observer = new GenerationObserver({
     modelContext: modelContextFor(input),
     promptSubmittedAt: input.promptSubmittedAt,
@@ -221,6 +228,7 @@ export async function POST(request: Request) {
     execute: async ({ writer }) => {
       const textState = { isOpen: false };
       observer.markAgentStarted();
+      observer.markFirstEvent();
       writer.write({ type: "data-trace", data: { correlationId }, transient: true });
       if (input.type === "prompt" && !input.session) {
         writer.write({
@@ -252,6 +260,7 @@ export async function POST(request: Request) {
       try {
         const agentStream = input.type === "prompt"
           ? streamPlannedAgent({
+              accessToken,
               provider,
               prompt: input.prompt,
               signal: request.signal,
@@ -260,6 +269,7 @@ export async function POST(request: Request) {
               ...(input.session ? { sessionState: input.session.state } : {}),
             })
           : streamPlannedAgent({
+            accessToken,
             provider,
             intent: input.intent,
             initialState: input.initialState,
@@ -319,6 +329,26 @@ export async function POST(request: Request) {
     headers: {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      "X-Correlation-ID": correlationId,
+      "X-Session-ID": sessionId,
+    },
+  });
+}
+
+function routeError(status: number, code: string, message: string, correlationId: string) {
+  return Response.json(errorPayloadSchema.parse({
+    version: "1",
+    code,
+    message,
+    recoverable: status >= 500,
+    hasPartialData: false,
+    correlationId,
+  }), {
+    status,
+    headers: {
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "X-Correlation-ID": correlationId,
     },
   });
 }

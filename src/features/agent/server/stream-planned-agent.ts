@@ -11,6 +11,7 @@ import type { AIProvider } from "./ai-provider";
 import type { AgentUIIntent } from "../contracts/agent-ui-intent";
 import type { SessionReference } from "@banorte/contracts";
 import { identifyUISpecification } from "../../generative-ui/patches/stable-node-ids";
+import { DataRevisionGuard } from "./data-revision-guard";
 import {
   applyUIPatch,
   createUIPatchState,
@@ -27,6 +28,7 @@ export type ValidatedAgentEvent =
   | ({ type: "ui-completed" } & AgentUIData["uiCompleted"]);
 
 interface StreamPlannedAgentBaseOptions {
+  accessToken?: string;
   provider: AIProvider;
   signal: AbortSignal;
   sessionId?: string;
@@ -78,11 +80,13 @@ export async function* streamPlannedAgent(
   let repair: ReturnType<typeof createRepairContext> | undefined;
   let patchState: UIPatchState | undefined = options.initialState;
   let hasPartialData = patchState !== undefined;
+  const dataGuard = new DataRevisionGuard(options.intent ?? options.sessionState);
 
   for (let attempt = 0; attempt <= MAX_UI_REPAIR_ATTEMPTS; attempt += 1) {
     let invalidUI: UIValidationError[] | null = null;
 
     for await (const event of provider.stream({
+      ...(options.accessToken ? { accessToken: options.accessToken } : {}),
       input,
       signal,
       sessionId,
@@ -91,11 +95,27 @@ export async function* streamPlannedAgent(
       ...(options.sessionState ? { sessionState: options.sessionState } : {}),
       ...(repair ? { repair } : {}),
     })) {
+      if (event.type === "data-patch" && !dataGuard.apply(event.patch)) {
+        yield {
+          type: "error", code: "data_revision_conflict",
+          message: "El agente envió datos fuera de la secuencia vigente",
+          recoverable: true, hasPartialData, correlationId,
+        };
+        return;
+      }
+      if (event.type === "data-available") dataGuard.available(event.key);
       if (event.type === "ui" || event.type === "ui-started") {
         const validation = validateUIEvent(event);
         if (!validation.success) {
           invalidUI = validation.errors;
           break;
+        }
+        for (const key of Object.keys(validation.event.data ?? {})) dataGuard.available(key);
+        if (!dataGuard.dependenciesReady(validation.event.specification)) {
+          yield { type: "error", code: "data_dependency_missing",
+            message: "La interfaz depende de datos que todavía no llegaron",
+            recoverable: false, hasPartialData, correlationId };
+          return;
         }
         const initialState = createUIPatchState(
           validation.event.specification,
@@ -129,12 +149,18 @@ export async function* streamPlannedAgent(
         if (!result.success) {
           yield {
             type: "error",
-            code: "ui_patch_invalid",
+            code: result.error.code === "version_conflict" ? "ui_revision_conflict" : "ui_patch_invalid",
             message: "El agente intentó aplicar un cambio de interfaz inválido",
             recoverable: true,
             hasPartialData,
             correlationId,
           };
+          return;
+        }
+        if (!dataGuard.dependenciesReady(result.state.specification)) {
+          yield { type: "error", code: "data_dependency_missing",
+            message: "El cambio de interfaz llegó antes de sus datos",
+            recoverable: false, hasPartialData, correlationId };
           return;
         }
         patchState = result.state;

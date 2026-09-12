@@ -67,6 +67,7 @@ export const agentRuntimeDiagnosticsSchema = z.object({
   milestones: z.object({
     promptSubmittedAt: milestoneTimestampSchema,
     requestReceivedAt: milestoneTimestampSchema,
+    firstEventAt: milestoneTimestampSchema.optional(),
     agentStartedAt: milestoneTimestampSchema.optional(),
     firstMcpRequestAt: milestoneTimestampSchema.optional(),
     firstMcpResultAt: milestoneTimestampSchema.optional(),
@@ -104,6 +105,18 @@ export const agentTextEvidenceSchema = z.object({
   textDeltaCount: z.number().int().nonnegative().max(10_000),
 }).strict();
 
+export const agentCompleteUIEvidenceSchema = z.object({
+  deliveryMode: z.literal("complete"),
+  dataPatchCount: z.number().int().nonnegative().max(100),
+  dataKeys: z.array(z.string().min(1).max(64)).max(100),
+  rootType: z.string().min(1).max(40),
+  nodeCount: z.number().int().positive().max(500),
+  compositionSignature: z.string().min(1).max(500),
+  validationResult: z.literal("valid"),
+}).strict();
+
+export type AgentCompleteUIEvidence = z.infer<typeof agentCompleteUIEvidenceSchema>;
+
 export type AgentUIData = {
   session: z.infer<typeof agentSessionSchema>;
   trace: z.infer<typeof agentTraceSchema>;
@@ -120,6 +133,7 @@ export type AgentUIData = {
   interaction: z.infer<typeof agentInteractionStateSchema>;
   agentError: z.infer<typeof agentErrorSchema>;
   textEvidence: z.infer<typeof agentTextEvidenceSchema>;
+  completeUIEvidence: z.infer<typeof agentCompleteUIEvidenceSchema>;
 };
 
 export type AgentUIMessage = UIMessage<unknown, AgentUIData>;
@@ -142,4 +156,5 @@ export const agentDataPartSchemas = {
   interaction: agentInteractionStateSchema,
   agentError: agentErrorSchema,
   textEvidence: agentTextEvidenceSchema,
+  completeUIEvidence: agentCompleteUIEvidenceSchema,
 };

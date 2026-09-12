@@ -5,6 +5,7 @@ import { useWorkspaceStore } from "../state/workspace-store";
 import { isWorkspaceBusy, type WorkspaceStatus } from "../types/workspace-status";
 import { useAgentSession } from "../../agent/components/AgentSessionProvider";
 import { UIRenderer } from "../../generative-ui/renderer/UIRenderer";
+import { UIEventProvider } from "../../generative-ui/interactions/events/UIEventProvider";
 import { shouldExposeRuntimeDiagnostics } from "../../../shared/security/runtime-diagnostics-visibility";
 
 interface StatusContent {
@@ -119,6 +120,7 @@ export function GenerativeCanvas() {
   const setDraft = useWorkspaceStore((state) => state.setDraft);
   const {
     activityMessage,
+    activeAnalysisId,
     answer,
     canRetry,
     changeSummary,
@@ -131,6 +133,8 @@ export function GenerativeCanvas() {
     pendingNodeIds,
     performance,
     retryLastRequest,
+    recoverSnapshot,
+    isRecoveringSnapshot,
     runtimeDiagnostics,
     sessionTitle,
   } = useAgentSession();
@@ -198,7 +202,9 @@ export function GenerativeCanvas() {
               <div className="canvas-result__metadata" aria-label="Estado del resultado">
                 <span>Actualizado {formatUpdatedAt(generatedInterface.updatedAt)}</span>
                 {hasFinancialData ? <span>Datos consultados</span> : null}
-                <span>Interfaz validada</span>
+                {generatedInterface.specification
+                  ? <span>{failure ? "Vista válida conservada" : "Interfaz validada"}</span>
+                  : <span>Datos de respaldo · UI no disponible</span>}
               </div>
             </header>
             {isProcessing ? (
@@ -240,10 +246,16 @@ export function GenerativeCanvas() {
                     </button>
                   ) : null}
                   {(failure?.canRetry ?? canRetry) ? <button type="button" onClick={retryLastRequest}>Reintentar</button> : null}
+                  {failure?.code.includes("revision_conflict") ? (
+                    <button type="button" disabled={isRecoveringSnapshot} onClick={recoverSnapshot}>
+                      {isRecoveringSnapshot ? "Sincronizando…" : "Sincronizar UI y datos"}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
             <div className="canvas-result__surface">
+              <UIEventProvider key={activeAnalysisId}>
               <UIRenderer
                 data={generatedInterface.data}
                 degradationReason={generatedInterface.degradationReason}
@@ -251,6 +263,7 @@ export function GenerativeCanvas() {
                 pendingNodeIds={pendingNodeIds}
                 specification={generatedInterface.specification}
               />
+              </UIEventProvider>
             </div>
             {showRuntimeDiagnostics && (performance || runtimeDiagnostics) ? (
               <details className="canvas-performance">
@@ -258,9 +271,13 @@ export function GenerativeCanvas() {
                 <ul className="canvas-performance__evidence">
                   <li>Solicitud interpretada por el agente</li>
                   {hasFinancialData ? <li>Datos financieros consultados mediante MCP</li> : null}
-                  <li>Interfaz validada antes de renderizar</li>
+                  <li>{generatedInterface.specification
+                    ? "Vista renderizada validada; consulta el estado de la generación actual"
+                    : "UI solicitada no disponible; se muestran datos de respaldo"}</li>
                 </ul>
                 <dl aria-label="Rendimiento de generación">
+                  {activeAnalysisId ? <div><dt>Sesión activa</dt><dd>{activeAnalysisId}</dd></div> : null}
+                  <div><dt>Revisión UI</dt><dd>{generatedInterface.revision}</dd></div>
                   {performance ? <div><dt>Agente</dt><dd>{performance.agentLatencyMs} ms</dd></div> : null}
                   {performance ? <div><dt>MCP</dt><dd>{performance.mcpLatencyMs} ms</dd></div> : null}
                   {performance ? <div><dt>Datos</dt><dd>{performance.dataLatencyMs} ms</dd></div> : null}
@@ -276,6 +293,12 @@ export function GenerativeCanvas() {
                     <div><dt>Render</dt><dd>{performance.frontendRenderLatencyMs} ms</dd></div>
                   )}
                   {performance ? <div><dt>Total</dt><dd>{performance.totalGenerationMs} ms</dd></div> : null}
+                  {runtimeDiagnostics?.milestones.firstEventAt === undefined ? null : (
+                    <div><dt>Primer evento</dt><dd>{elapsedMilliseconds(runtimeDiagnostics.milestones.promptSubmittedAt, runtimeDiagnostics.milestones.firstEventAt)} ms</dd></div>
+                  )}
+                  {runtimeDiagnostics?.milestones.firstMcpResultAt === undefined ? null : (
+                    <div><dt>Primeros datos</dt><dd>{elapsedMilliseconds(runtimeDiagnostics.milestones.promptSubmittedAt, runtimeDiagnostics.milestones.firstMcpResultAt)} ms</dd></div>
+                  )}
                   {runtimeDiagnostics?.milestones.agentStartedAt === undefined ? null : (
                     <div><dt>Inicio agente</dt><dd>{elapsedMilliseconds(runtimeDiagnostics.milestones.requestReceivedAt, runtimeDiagnostics.milestones.agentStartedAt)} ms</dd></div>
                   )}

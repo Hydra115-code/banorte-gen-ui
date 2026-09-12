@@ -54,7 +54,9 @@ import {
   restoreGeneratedUIFocusAfterCommit,
 } from "../../generative-ui/interactions/reconciliation/focus-reconciliation";
 import { classifyInteractionEvent } from "../interactions/interaction-policy";
+import { collectFormValues } from "../interactions/form-submission";
 import { InteractionRequestRegistry } from "../interactions/interaction-request-registry";
+import { restoreSessionUiSnapshot } from "../session/session-ui-snapshot";
 import { FrameCommitBatcher } from "../performance/frame-commit-batcher";
 import {
   FrontendPerformanceSampler,
@@ -104,6 +106,9 @@ interface AgentSessionValue {
   pendingNodeIds: ReadonlySet<string>;
   performance?: AgentPerformance;
   retryLastRequest: () => void;
+  recoverSnapshot: () => void;
+  testStaleSimulation: () => void;
+  isRecoveringSnapshot: boolean;
   selectAnalysis: (id: string) => void;
   runtimeDiagnostics?: AgentRuntimeDiagnostics & { frontendTimeToFirstUsefulUiMs?: number };
   sendPrompt: (prompt: string) => Promise<void>;
@@ -188,7 +193,12 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   const [generatedInterface, setGeneratedInterface] = useState<GeneratedInterface>();
   const patchStateRef = useRef<UIPatchState | undefined>(undefined);
   const dataStateRef = useRef<DataRegistryPatchState>(createDataRegistryPatchState());
+  const synchronizationBlockedRef = useRef(false);
+  const conflictedSessionIdsRef = useRef(new Set<string>());
+  const recoveryEpochRef = useRef(0);
+  const [isRecoveringSnapshot, setIsRecoveringSnapshot] = useState(false);
   const sessionIdRef = useRef<string | undefined>(undefined);
+  const formDraftsRef = useRef(new Map<string, string>());
   const lastPromptRef = useRef<string | undefined>(undefined);
   const renderStartedAtRef = useRef<number | undefined>(undefined);
   const frontendRenderLatencyRef = useRef<number | undefined>(undefined);
@@ -268,6 +278,10 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     hasPartialData?: boolean,
     scope: "conversation" | "ui" | "data_registry" | "payment" = "conversation",
   ) => {
+    if (code.includes("revision_conflict")) {
+      synchronizationBlockedRef.current = true;
+      if (sessionIdRef.current) conflictedSessionIdsRef.current.add(sessionIdRef.current);
+    }
     discardBatchedCommit();
     const hasUsablePartialData = hasPartialData === true
       || Boolean(patchStateRef.current)
@@ -278,8 +292,9 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     pendingChangesRef.current = [];
     interactionRegistryRef.current.clear();
     preserveForDegradation("partial_data");
-    setCanRetry(recoverable);
-    setFailure(presentAgentFailure({ code, message, recoverable, hasPartialData: hasUsablePartialData }));
+    const presentation = presentAgentFailure({ code, message, recoverable, hasPartialData: hasUsablePartialData });
+    setCanRetry(presentation.canRetry);
+    setFailure(presentation);
     setActivityMessage(hasUsablePartialData ? "Conservamos la información disponible" : "La consulta necesita atención");
     setError(message, scope);
   }, [discardBatchedCommit, preserveForDegradation, setError]);
@@ -288,6 +303,10 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     transport,
     dataPartSchemas: agentDataPartSchemas,
     onData: (part) => {
+      if (synchronizationBlockedRef.current && [
+        "data-dataAvailable", "data-dataPatch", "data-ui", "data-uiStarted",
+        "data-uiPatch", "data-uiCompleted", "data-status",
+      ].includes(part.type)) return;
       if (part.type === "data-trace") {
         setCorrelationId(part.data.correlationId);
       } else if (part.type === "data-session") {
@@ -296,6 +315,8 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
         setActiveAnalysisId(part.data.id);
         setCorrelationId(part.data.correlationId);
         if (isNewSession) {
+          formDraftsRef.current.clear();
+          synchronizationBlockedRef.current = false;
           patchStateRef.current = undefined;
           dataStateRef.current = createDataRegistryPatchState();
           interactionRegistryRef.current.clear();
@@ -324,7 +345,9 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
       } else if (part.type === "data-dataPatch") {
         const result = applyDataRegistryPatch(dataStateRef.current, part.data);
         if (!result.success) {
-          failGracefully("Se recibió una actualización de datos fuera de orden.", true, "data_patch_invalid", undefined, "data_registry");
+          failGracefully("Se recibió una actualización de datos fuera de orden.", true,
+            result.error.code === "version_conflict" ? "data_revision_conflict" : "data_patch_invalid",
+            undefined, "data_registry");
           return;
         }
         dataStateRef.current = result.state;
@@ -404,7 +427,9 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
         const focusedControl = captureGeneratedUIFocus();
         const result = applyUIPatch(patchStateRef.current, part.data);
         if (!result.success) {
-          failGracefully("No fue posible aplicar una actualización de interfaz.", true, "ui_patch_invalid", undefined, "ui");
+          failGracefully("No fue posible aplicar una actualización de interfaz.", true,
+            result.error.code === "version_conflict" ? "ui_revision_conflict" : "ui_patch_invalid",
+            undefined, "ui");
           return;
         }
         performanceSamplerRef.current.recordPatchApply(globalThis.performance.now() - patchReceivedAt);
@@ -415,6 +440,8 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
       } else if (part.type === "data-uiCompleted") {
         frameBatcherRef.current?.flush();
         if (patchStateRef.current?.revision !== part.data.revision) {
+          synchronizationBlockedRef.current = true;
+          if (sessionIdRef.current) conflictedSessionIdsRef.current.add(sessionIdRef.current);
           dispatchExperience({ type: "REVISION_CONFLICT" });
           dispatchExperience({ type: "PARTIAL_AVAILABLE" });
           setPendingNodeIds(new Set());
@@ -586,6 +613,10 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   }, [activeAnalysisId, analysisSnapshots]);
 
   const sendPrompt = useCallback(async (prompt: string) => {
+    if (synchronizationBlockedRef.current) {
+      setActivityMessage("Este análisis necesita recuperar el snapshot autoritativo antes de continuar");
+      return;
+    }
     const submittedPrompt = useWorkspaceStore.getState().submitPrompt(prompt);
     if (!submittedPrompt) return;
     prompt = submittedPrompt;
@@ -643,6 +674,9 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   }, [discardBatchedCommit, sendMessage, updateGeneratedInterface]);
 
   const startNewSession = useCallback(() => {
+    recoveryEpochRef.current += 1;
+    setIsRecoveringSnapshot(false);
+    synchronizationBlockedRef.current = false;
     void stop();
     sessionIdRef.current = undefined;
     lastPromptRef.current = undefined;
@@ -677,10 +711,13 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   const selectAnalysis = useCallback((id: string) => {
     const snapshot = analysisSnapshots.find((item) => item.id === id);
     if (!snapshot || id === activeAnalysisId) return;
+    recoveryEpochRef.current += 1;
+    setIsRecoveringSnapshot(false);
 
     void stop();
     discardBatchedCommit();
     sessionIdRef.current = snapshot.id;
+    synchronizationBlockedRef.current = conflictedSessionIdsRef.current.has(snapshot.id);
     patchStateRef.current = snapshot.patchState;
     dataStateRef.current = snapshot.dataState;
     isInteractionRequestRef.current = false;
@@ -702,6 +739,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   }, [activeAnalysisId, analysisSnapshots, discardBatchedCommit, dispatchExperience, setMessages, stop, updateGeneratedInterface]);
 
   const dispatchAgentInteraction = useCallback((intent: AgentUIIntent) => {
+    if (synchronizationBlockedRef.current) return false;
     if (!interactionRegistryRef.current.begin(intent)) return false;
     lastInteractionIntentRef.current = intent;
     lastRequestKindRef.current = "interaction";
@@ -723,6 +761,12 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   const handleUIEvent = useCallback((event: LocalUIEvent) => {
     const policy = classifyInteractionEvent(event.name);
     if (policy.delivery === "local") {
+      if (event.name === "form.value.changed" && typeof event.value === "string") {
+        if (formDraftsRef.current.size >= 128 && !formDraftsRef.current.has(`${sessionIdRef.current}:${event.sourceId}`)) {
+          formDraftsRef.current.delete(formDraftsRef.current.keys().next().value!);
+        }
+        formDraftsRef.current.set(`${sessionIdRef.current}:${event.sourceId}`, event.value);
+      }
       setActivityMessage("Cambio visual aplicado localmente");
       return;
     }
@@ -743,6 +787,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     const patchState = patchStateRef.current;
     if (
       !event.isValid
+      || synchronizationBlockedRef.current
       || !sessionId
       || !patchState
       || status !== "ready"
@@ -751,6 +796,14 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const formValues = event.name === "form.submit"
+      ? collectFormValues(patchState.specification, event.sourceId, new Map([...formDraftsRef.current].filter(([key]) => key.startsWith(`${sessionId}:`)).map(([key, value]) => [key.slice(sessionId.length + 1), value])))
+      : undefined;
+    if (formValues === null) {
+      setActivityMessage("Completa los campos requeridos antes de revisar");
+      setError("Selecciona origen y destinatario y revisa los campos del formulario.", "ui");
+      return;
+    }
     const intent = agentUIIntentSchema.safeParse({
       version: "1",
       correlationId: crypto.randomUUID(),
@@ -759,7 +812,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
       dataRevision: dataStateRef.current.revision,
       dataKeys: Object.keys(dataStateRef.current.data),
       currentSpecification: patchState.specification,
-      event: event.value === undefined
+      event: formValues ? { name: event.name, sourceId: event.sourceId, formValues } : event.value === undefined
         ? { name: event.name, sourceId: event.sourceId }
         : { name: event.name, sourceId: event.sourceId, value: event.value },
     });
@@ -769,6 +822,16 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     }
     dispatchAgentInteraction(intent.data);
   }, [dispatchAgentInteraction, setError, status]);
+
+  const testStaleSimulation = useCallback(() => {
+    if (process.env.NODE_ENV !== "development" || window.location.pathname !== "/dev/ui-interaction-harness") return;
+    const previous = lastInteractionIntentRef.current;
+    if (!previous || status !== "ready" || synchronizationBlockedRef.current
+      || previous.sessionId !== sessionIdRef.current
+      || classifyInteractionEvent(previous.event.name).kind !== "simulation"
+      || previous.interfaceRevision >= (patchStateRef.current?.revision ?? 0)) return;
+    dispatchAgentInteraction({ ...previous, correlationId: crypto.randomUUID() });
+  }, [dispatchAgentInteraction, status]);
 
   const cancel = useCallback(() => {
     void stop();
@@ -785,6 +848,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   }, [discardBatchedCommit, dispatchExperience, generatedInterface, preserveForDegradation, stop]);
 
   const retryLastRequest = useCallback(() => {
+    if (synchronizationBlockedRef.current) return;
     if (status === "submitted" || status === "streaming") return;
     if (lastRequestKindRef.current === "interaction") {
       const intent = lastInteractionIntentRef.current;
@@ -798,8 +862,52 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     void sendPrompt(prompt);
   }, [dispatchAgentInteraction, sendPrompt, status]);
 
+  const recoverSnapshot = useCallback(() => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId || !synchronizationBlockedRef.current || isRecoveringSnapshot
+      || status === "submitted" || status === "streaming") return;
+    const epoch = ++recoveryEpochRef.current;
+    setIsRecoveringSnapshot(true);
+    setActivityMessage("Recuperando la UI y sus datos sin repetir la operación");
+    void (async () => {
+      try {
+        const response = await fetch("/api/agent/snapshot", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }), signal: AbortSignal.timeout(12_000),
+        });
+        if (!response.ok) throw new Error("Snapshot no disponible");
+        const restored = restoreSessionUiSnapshot(await response.json(), sessionId);
+        if (epoch !== recoveryEpochRef.current || sessionIdRef.current !== sessionId) return;
+        const focusedControl = captureGeneratedUIFocus();
+        discardBatchedCommit();
+        patchStateRef.current = restored.ui;
+        dataStateRef.current = restored.data;
+        updateGeneratedInterface({ specification: restored.ui.specification,
+          data: restored.data.data, revision: restored.ui.revision, updatedAt: Date.now() });
+        synchronizationBlockedRef.current = false;
+        conflictedSessionIdsRef.current.delete(sessionId);
+        setFailure(undefined);
+        setCanRetry(false);
+        setActivityMessage("UI y datos sincronizados con el backend");
+        useWorkspaceStore.setState({ errorMessage: null });
+        dispatchExperience({ type: "RESTORE_SESSION" });
+        restoreGeneratedUIFocusAfterCommit(focusedControl);
+      } catch {
+        if (epoch === recoveryEpochRef.current && sessionIdRef.current === sessionId) {
+          setActivityMessage("Snapshot no disponible; conservamos la vista y el bloqueo de esta sesión");
+        }
+      } finally {
+        if (epoch === recoveryEpochRef.current) setIsRecoveringSnapshot(false);
+      }
+    })();
+  }, [discardBatchedCommit, dispatchExperience, isRecoveringSnapshot, status, updateGeneratedInterface]);
+
   const continueWithPartialData = useCallback(() => {
     if (!failure?.canContinue || !generatedInterface) return;
+    if (synchronizationBlockedRef.current) {
+      setActivityMessage("Puedes consultar la vista conservada; sincroniza antes de continuar este análisis");
+      return;
+    }
     setFailure(undefined);
     setCanRetry(false);
     dispatchExperience({ type: "RESTORE_SESSION" });
@@ -822,12 +930,15 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     pendingNodeIds,
     performance,
     retryLastRequest,
+    recoverSnapshot,
+    testStaleSimulation,
+    isRecoveringSnapshot,
     selectAnalysis,
     runtimeDiagnostics,
     sendPrompt,
     sessionTitle,
     startNewSession,
-  }), [activeAnalysisId, activityMessage, analysisSnapshots, answer, canRetry, cancel, changeSummary, continueWithPartialData, correlationId, failure, frontendPerformance, generatedInterface, handleUIEvent, pendingNodeIds, performance, retryLastRequest, runtimeDiagnostics, selectAnalysis, sendPrompt, sessionTitle, startNewSession]);
+  }), [activeAnalysisId, activityMessage, analysisSnapshots, answer, canRetry, cancel, changeSummary, continueWithPartialData, correlationId, failure, frontendPerformance, generatedInterface, handleUIEvent, pendingNodeIds, performance, retryLastRequest, recoverSnapshot, testStaleSimulation, isRecoveringSnapshot, runtimeDiagnostics, selectAnalysis, sendPrompt, sessionTitle, startNewSession]);
 
   return <AgentSessionContext.Provider value={value}>{children}</AgentSessionContext.Provider>;
 }

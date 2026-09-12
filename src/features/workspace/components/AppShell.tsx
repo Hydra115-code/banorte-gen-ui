@@ -7,11 +7,13 @@ import { AgentSessionProvider } from "../../agent/components/AgentSessionProvide
 import { SystemStatusBar } from "../../system-status/components/SystemStatusBar";
 import { WorkspaceErrorBoundary } from "./WorkspaceErrorBoundary";
 import { AnalysisHistory } from "./AnalysisHistory";
+import type { ReactNode } from "react";
 
-export function AppShell() {
+export function AppShell({ diagnostics }: { diagnostics?: ReactNode } = {}) {
   return (
     <WorkspaceErrorBoundary>
       <AgentSessionProvider>
+        {diagnostics}
         <main className="workspace">
           <WorkspaceHeader />
           <SystemStatusBar />

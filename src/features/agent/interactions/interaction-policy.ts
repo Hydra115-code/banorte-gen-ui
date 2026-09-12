@@ -16,6 +16,7 @@ const SAFE_PAYMENT_PREPARATION_EVENT = /^payment\.(?:draft|review)\.(?:cancel|ed
  * whether a valid intent may leave the browser.
  */
 export function classifyInteractionEvent(name: string): InteractionPolicyDecision {
+  if (name === "form.value.changed") return { kind: "visual", delivery: "local" };
   if (VISUAL_EVENT.test(name)) return { kind: "visual", delivery: "local" };
   if (SAFE_PAYMENT_PREPARATION_EVENT.test(name)) return { kind: "analysis", delivery: "agent" };
   if (FINANCIAL_NAMESPACE.test(name) && AUTHORITATIVE_ACTION.test(name)) {

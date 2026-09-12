@@ -39,8 +39,15 @@ export const uiEventSchema = z.object({
     name: interactionEventNameSchema,
     sourceId: nodeIdSchema,
     value: uiEventValueSchema.optional(),
+    formValues: z.record(nodeIdSchema, z.string().max(500))
+      .refine((fields) => Object.keys(fields).length > 0 && Object.keys(fields).length <= 12)
+      .optional(),
   }).strict(),
-}).strict();
+}).strict().superRefine((input, context) => {
+  if (input.event.formValues !== undefined && input.event.name !== "form.submit") {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["event", "formValues"], message: "Los campos completos sólo pertenecen a form.submit" });
+  }
+});
 
 export const sessionReferenceSchema = z.object({
   interfaceRevision: revisionSchema,

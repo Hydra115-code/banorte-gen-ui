@@ -29,7 +29,7 @@ export function Select({ id, label, event, options, initialValue = "", placehold
           emit(nextValue || null, !required || Boolean(nextValue));
         }}
       >
-        {placeholder || required ? <option value="">{placeholder ?? "Selecciona una opción"}</option> : null}
+        <option value="">{placeholder ?? "Selecciona una opción"}</option>
         {options.map((option) => <option disabled={option.disabled} key={option.value} value={option.value}>{option.label}</option>)}
       </select>
       <FieldMessage error={error} helpText={helpText} id={messageId} />

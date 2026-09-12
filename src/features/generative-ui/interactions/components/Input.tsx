@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
 import type { InteractionNode } from "../../schemas/interaction-node";
-import { useInteractionEvent } from "../events/UIEventProvider";
+import { useInteractionEvent, useTextDraft } from "../events/UIEventProvider";
+import { controlCompatibilityKey } from "../reconciliation/control-compatibility-key";
 import { validateTextValue } from "../validation/interaction-validation";
 import { FieldMessage } from "./FieldMessage";
 
 type InputNode = Extract<InteractionNode, { type: "input" }>;
 
 export function Input({ id, label, event, initialValue = "", placeholder, validation, helpText, disabled }: InputNode) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useTextDraft(controlCompatibilityKey({ type: "input", id, label, event, initialValue, validation }), initialValue);
   const emit = useInteractionEvent(id, event);
   const error = validateTextValue(value, validation);
   const messageId = `${id}-message`;

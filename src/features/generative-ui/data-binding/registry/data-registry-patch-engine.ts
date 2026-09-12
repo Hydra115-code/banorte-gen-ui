@@ -1,6 +1,6 @@
 import { dataPatchSchema, type DataPatch } from "@banorte/contracts";
 import type { DataRegistryValue } from "../schemas/data-registry-schema";
-import { DataRegistry } from "./DataRegistry";
+import { DataRegistry } from "./DataRegistry.ts";
 
 export interface DataRegistryPatchState {
   revision: number;
