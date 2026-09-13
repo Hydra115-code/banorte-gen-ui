@@ -7,7 +7,7 @@ export function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self'",
+    "connect-src 'self' https://api.elevenlabs.io wss://api.elevenlabs.io",
     "worker-src 'self' blob:",
     "frame-src 'none'",
     "media-src 'none'",

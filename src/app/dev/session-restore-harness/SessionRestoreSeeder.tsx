@@ -10,9 +10,19 @@ export function SessionRestoreSeeder() {
   const [result, setResult] = useState("Preparando prueba de restauración…");
 
   useEffect(() => {
-    const now = Date.now();
-    const saved = saveSessionArchive(window.sessionStorage, {
+    async function seed() {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      const session: unknown = response.ok ? await response.json() : null;
+      const ownerKey = session && typeof session === "object" && "ownerKey" in session
+        && typeof session.ownerKey === "string" ? session.ownerKey : null;
+      if (!ownerKey) {
+        setResult("Inicia sesión para preparar la restauración.");
+        return;
+      }
+      const now = Date.now();
+      const saved = saveSessionArchive(window.sessionStorage, {
       version: "1",
+      ownerKey,
       savedAt: now,
       activeAnalysisId: PROBE_SESSION_ID,
       snapshots: [{
@@ -31,11 +41,13 @@ export function SessionRestoreSeeder() {
           updatedAt: now,
         },
       }],
-    });
-    const restored = loadSessionArchive(window.sessionStorage, now);
-    setResult(saved && restored?.activeAnalysisId === PROBE_SESSION_ID
-      ? "Snapshot guardado y validado."
-      : "No fue posible preparar el snapshot.");
+      });
+      const restored = loadSessionArchive(window.sessionStorage, ownerKey, now);
+      setResult(saved && restored?.activeAnalysisId === PROBE_SESSION_ID
+        ? "Snapshot guardado y validado."
+        : "No fue posible preparar el snapshot.");
+    }
+    void seed().catch(() => setResult("No fue posible comprobar la sesión."));
   }, []);
 
   return (

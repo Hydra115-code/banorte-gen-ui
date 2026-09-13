@@ -28,6 +28,8 @@ backend. El contrato incluido en ambos repositorios tiene la misma versión.
 
 La autenticación de usuario se realiza server-side contra Supabase. Next.js conserva access y refresh token en cookies `HttpOnly`, `SameSite=Strict` y `Secure` en producción. No guardes un JWT de usuario, una `service_role` key ni `SUPABASE_ACCESS_TOKEN` en el frontend. `AGENT_API_TOKEN` sólo existe para compatibilidad con backends legados y no identifica a un usuario bancario.
 
+Para la demostración opcional, crea en Supabase una cuenta normal con datos **sintéticos** y RLS vigente. Configura `BANORTE_DEMO_LOGIN_ENABLED=true`, `BANORTE_DEMO_EMAIL` y `BANORTE_DEMO_PASSWORD` sólo como secretos del servidor en el entorno de despliegue. El botón «Entrar a demostración» no aparece si falta alguna variable; nunca coloques esas credenciales en `NEXT_PUBLIC_*` ni las subas al repositorio. Si el sitio es público, cualquier visitante podrá acceder a esa cuenta demo: habilítala sólo si esa exposición es aceptable. Sin modo demo, la pantalla ofrece inicio de sesión normal.
+
 ## Desarrollo
 
 ```bash

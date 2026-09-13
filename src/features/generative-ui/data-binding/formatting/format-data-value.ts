@@ -1,4 +1,4 @@
-import type { DataValue } from "../schemas/data-registry-schema";
+import type { DataValue } from "../schemas/data-registry-schema.js";
 
 export type DataDisplayFormat =
   | "text"
@@ -17,6 +17,28 @@ interface FormatDataValueOptions {
 
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
 const contractualFinancialAmountPattern = /^-?\d{1,16}(?:\.\d{1,2})?$/;
+const localizedDisplayValues: Readonly<Record<string, string>> = {
+  checking: "Cuenta de cheques",
+  savings: "Cuenta de ahorro",
+  credit_card: "Tarjeta de crédito",
+  active: "Activa",
+  inactive: "Inactiva",
+  pending: "Pendiente",
+  completed: "Completada",
+  failed: "Fallida",
+  cancelled: "Cancelada",
+  success: "Correcta",
+  positive: "Positiva",
+  negative: "Negativa",
+  debit: "Cargo",
+  credit: "Abono",
+  observed: "Observado",
+  simulated: "Simulado",
+};
+
+export function localizeDisplayValue(value: string) {
+  return localizedDisplayValues[value.trim().toLocaleLowerCase("es-MX")] ?? value;
+}
 
 function financialDisplayNumber(value: DataValue) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -35,7 +57,13 @@ export function formatDataValue(
   if (value === null) return null;
 
   if (format === "currency") {
-    return new Intl.NumberFormat(options.locale, { style: "currency", currency: options.currency })
+    return new Intl.NumberFormat(options.locale, {
+      style: "currency",
+      currency: options.currency,
+      currencyDisplay: "code",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
       .format(financialDisplayNumber(value));
   }
 
@@ -61,7 +89,7 @@ export function formatDataValue(
     ).format(date);
   }
 
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return localizeDisplayValue(value);
   if (typeof value === "number") return new Intl.NumberFormat(options.locale, { maximumFractionDigits: 2 }).format(value);
   if (typeof value === "boolean") return value ? "Sí" : "No";
   return null;

@@ -46,6 +46,38 @@ export async function refreshSupabaseSession(
   );
 }
 
+export async function verifySupabaseUser(
+  accessToken: string,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<string> {
+  const config = readSupabaseAuthConfig();
+  if (!config) throw new SupabaseAuthenticationError("configuration");
+  const endpoint = new URL("/auth/v1/user", config.url);
+  let response: Response;
+  try {
+    response = await fetchImplementation(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: config.publishableKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new SupabaseAuthenticationError("unavailable");
+  }
+  if (!response.ok) {
+    throw new SupabaseAuthenticationError(
+      response.status === 401 || response.status === 403 ? "invalid_credentials" : "unavailable",
+    );
+  }
+  const parsed = z.object({ id: z.string().uuid() }).passthrough()
+    .safeParse(await response.json().catch(() => null));
+  if (!parsed.success) throw new SupabaseAuthenticationError("unavailable");
+  return parsed.data.id;
+}
+
 async function requestConfiguredSession(
   grantType: "password" | "refresh_token",
   body: Record<string, string>,

@@ -12,7 +12,8 @@ const harness = readFileSync(new URL("../src/app/dev/streaming-ui-harness/Stream
 test("la ruta productiva exige cookie HttpOnly y propaga el JWT individual", () => {
   assert.match(route, /readSessionCookies\(request\)/u);
   assert.match(route, /if \(!accessToken\)/u);
-  assert.match(route, /streamPlannedAgent\(\{\s*accessToken,/u);
+  assert.match(route, /streamPlannedAgent\(\{\s*accessToken: token,/u);
+  assert.match(route, /createAgentStream\(accessToken\)/u);
   assert.match(route, /"X-Correlation-ID": correlationId/u);
 });
 
@@ -54,7 +55,7 @@ test("mide primer evento, primeros datos, primera UI útil y tiempo total", () =
 });
 
 test("I6 usa el runtime productivo sin hardcodear una especificación y no altera I5", () => {
-  assert.match(harness, /<AppShell \/>/u);
+  assert.match(harness, /<AppShell showDeveloperDiagnostics \/>/u);
   assert.doesNotMatch(harness, /root:\s*\{/u);
   assert.doesNotMatch(completeRoute, /type: "data-uiStarted"/u);
   assert.doesNotMatch(completeRoute, /type: "data-uiPatch"/u);

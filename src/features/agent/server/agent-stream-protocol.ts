@@ -5,6 +5,7 @@ import {
 } from "@banorte/contracts";
 
 export type AgentApiErrorCode =
+  | "authentication_required"
   | "agent_api_rejected"
   | "agent_api_timeout"
   | "agent_api_unavailable"

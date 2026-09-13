@@ -5,6 +5,7 @@ export const SESSION_ARCHIVE_KEY = "banorte:agent-session:v1";
 export const SESSION_ARCHIVE_TTL_MS = 30 * 60 * 1_000;
 export const MAX_SESSION_ARCHIVE_BYTES = 750_000;
 const MAX_PERSISTED_ANALYSES = 8;
+const HIDDEN_VERTICAL_TITLE = /\b(?:pago(?:s)?|pagar|beneficiario(?:s)?|transfer(?:ir|encia|encias)?|prestamo(?:s)?|credito(?:s)?|deuda(?:s)?|salud\s+financiera|educacion\s+financiera|simul(?:a|ar|acion)|meta\s+de\s+ahorro)\b/u;
 
 export interface SessionStorageLike {
   getItem(key: string): string | null;
@@ -32,6 +33,7 @@ const persistedSnapshotSchema = z.object({
 
 const sessionArchiveSchema = z.object({
   version: z.literal("1"),
+  ownerKey: z.string().regex(/^[a-f0-9]{64}$/u),
   savedAt: z.number().int().nonnegative().max(9_000_000_000_000_000),
   activeAnalysisId: z.string().uuid().optional(),
   snapshots: z.array(persistedSnapshotSchema).min(1).max(MAX_PERSISTED_ANALYSES),
@@ -44,6 +46,15 @@ function byteLength(value: string) {
   return new TextEncoder().encode(value).byteLength;
 }
 
+export function isPersonalBankingAnalysisTitle(title: string): boolean {
+  const normalized = title
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase("es-MX")
+    .trim();
+  return !HIDDEN_VERTICAL_TITLE.test(normalized);
+}
+
 function removeQuietly(storage: SessionStorageLike) {
   try {
     storage.removeItem(SESSION_ARCHIVE_KEY);
@@ -54,6 +65,7 @@ function removeQuietly(storage: SessionStorageLike) {
 
 export function loadSessionArchive(
   storage: SessionStorageLike,
+  ownerKey: string,
   now = Date.now(),
 ): SessionArchive | null {
   let serialized: string | null;
@@ -70,7 +82,8 @@ export function loadSessionArchive(
 
   try {
     const parsed = sessionArchiveSchema.safeParse(JSON.parse(serialized) as unknown);
-    if (!parsed.success || now - parsed.data.savedAt > SESSION_ARCHIVE_TTL_MS || parsed.data.savedAt > now + 60_000) {
+    if (!parsed.success || parsed.data.ownerKey !== ownerKey
+      || now - parsed.data.savedAt > SESSION_ARCHIVE_TTL_MS || parsed.data.savedAt > now + 60_000) {
       removeQuietly(storage);
       return null;
     }

@@ -1,99 +1,145 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import type { RealtimeConnection } from "@elevenlabs/client";
 import { useWorkspaceStore } from "../state/workspace-store";
 import { isWorkspaceBusy } from "../types/workspace-status";
 import { useAgentSession } from "../../agent/components/AgentSessionProvider";
+import { startTranscription } from "../../voice/client/realtime-transcription";
+import { composeTranscriptDraft } from "../../voice/client/transcript-draft";
+import { voiceFailureMessage } from "../../voice/client/voice-failure-message";
 
 const MAX_PROMPT_LENGTH = 2_000;
-
-interface BrowserSpeechRecognition {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+type VoicePhase = "idle" | "connecting" | "listening" | "ready" | "error";
 
 export function PromptComposer() {
   const draft = useWorkspaceStore((state) => state.draft);
   const setDraft = useWorkspaceStore((state) => state.setDraft);
   const status = useWorkspaceStore((state) => state.experience.status);
-  const { cancel, generatedInterface, sendPrompt, sessionTitle } = useAgentSession();
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const [isListening, setIsListening] = useState(false);
+  const { cancel, generatedInterface, sendPrompt } = useAgentSession();
+
+  const connectionRef = useRef<RealtimeConnection | null>(null);
+  const baseDraftRef = useRef("");
+  const committedSegmentsRef = useRef<string[]>([]);
+  const voiceAttemptRef = useRef(0);
+
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const [voiceMessage, setVoiceMessage] = useState("");
+
   const isBusy = isWorkspaceBusy(status);
+  const isConnecting = voicePhase === "connecting";
+  const isListening = voicePhase === "listening";
   const canSubmit = draft.trim().length > 0 && !isBusy;
 
-  useEffect(() => () => recognitionRef.current?.stop(), []);
+  const stopVoiceInput = (nextPhase?: VoicePhase) => {
+    voiceAttemptRef.current += 1;
+    if (connectionRef.current) {
+      connectionRef.current.close();
+      connectionRef.current = null;
+    }
+    setVoicePhase(nextPhase ?? (useWorkspaceStore.getState().draft.trim() !== baseDraftRef.current ? "ready" : "idle"));
+  };
+
+  useEffect(() => {
+    return () => {
+      voiceAttemptRef.current += 1;
+      if (connectionRef.current) {
+        connectionRef.current.close();
+        connectionRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isListening || isConnecting) {
+      stopVoiceInput();
+      return;
+    }
     const prompt = draft.trim();
-    if (prompt) void sendPrompt(prompt);
+    if (prompt) {
+      setVoicePhase("idle");
+      setVoiceMessage("");
+      void sendPrompt(prompt);
+    }
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
+    if (isListening || isConnecting) {
+      stopVoiceInput();
+      return;
+    }
     const prompt = draft.trim();
-    if (prompt) void sendPrompt(prompt);
+    if (prompt) {
+      setVoicePhase("idle");
+      setVoiceMessage("");
+      void sendPrompt(prompt);
+    }
   };
 
-  const handleVoiceInput = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
+  const updateTranscriptDraft = (partialText?: string) => {
+    setDraft(composeTranscriptDraft(baseDraftRef.current, committedSegmentsRef.current, partialText));
+  };
+
+  const handleVoiceInput = async () => {
+    if (isListening || isConnecting) {
+      stopVoiceInput();
       return;
     }
 
-    const browserWindow = window as typeof window & {
-      SpeechRecognition?: SpeechRecognitionConstructor;
-      webkitSpeechRecognition?: SpeechRecognitionConstructor;
-    };
-    const Recognition = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
-
-    if (!Recognition) {
-      setVoiceMessage("La entrada por voz no está disponible en este navegador.");
-      return;
-    }
-
-    const baseDraft = draft.trim();
-    const recognition = new Recognition();
-    recognition.lang = "es-MX";
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .trim();
-      setDraft(`${baseDraft}${baseDraft && transcript ? " " : ""}${transcript}`.slice(0, MAX_PROMPT_LENGTH));
-    };
-    recognition.onerror = () => {
-      setIsListening(false);
-      setVoiceMessage("No pudimos escuchar el dictado. Puedes escribir tu consulta.");
-    };
-    recognition.onend = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
-    };
-    recognitionRef.current = recognition;
+    baseDraftRef.current = draft.trim();
+    committedSegmentsRef.current = [];
     setVoiceMessage("");
-    setIsListening(true);
-    recognition.start();
+    setVoicePhase("connecting");
+    const attempt = ++voiceAttemptRef.current;
+
+    try {
+      const connection = await startTranscription({
+        onOpen: () => {
+          if (voiceAttemptRef.current === attempt) setVoicePhase("listening");
+        },
+        onPartial: (text) => {
+          if (voiceAttemptRef.current !== attempt) return;
+          setVoicePhase("listening");
+          updateTranscriptDraft(text);
+        },
+        onCommitted: (text) => {
+          if (voiceAttemptRef.current !== attempt) return;
+          setVoicePhase("listening");
+          if (text && text.trim()) {
+            committedSegmentsRef.current.push(text.trim());
+          }
+          updateTranscriptDraft();
+        },
+        onError: (error) => {
+          if (voiceAttemptRef.current !== attempt) return;
+          stopVoiceInput("error");
+          setVoiceMessage(voiceFailureMessage(error));
+        },
+        onClose: () => {
+          if (voiceAttemptRef.current === attempt) stopVoiceInput();
+        },
+      });
+
+      if (voiceAttemptRef.current !== attempt) {
+        connection.close();
+        return;
+      }
+      connectionRef.current = connection;
+    } catch (error) {
+      if (voiceAttemptRef.current !== attempt) return;
+      stopVoiceInput("error");
+      setVoiceMessage(voiceFailureMessage(error));
+    }
   };
 
   return (
     <footer className="composer-region">
-      {generatedInterface && sessionTitle ? (
+      {generatedInterface ? (
         <div className="composer-context">
-          <span><i aria-hidden="true" />Continuando: <strong>{sessionTitle}</strong></span>
+          <span><i aria-hidden="true" />Resultado listo · Puedes pedir más detalle</span>
         </div>
       ) : null}
       <form className="composer" onSubmit={handleSubmit}>
@@ -105,19 +151,26 @@ export function PromptComposer() {
           name="prompt"
           rows={1}
           maxLength={MAX_PROMPT_LENGTH}
-          placeholder="Pregunta financiera…"
+          placeholder="Pregunta sobre tus cuentas…"
           value={draft}
           disabled={isBusy}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            if (isListening || isConnecting) stopVoiceInput();
+            if (voicePhase === "error") {
+              setVoicePhase("idle");
+              setVoiceMessage("");
+            }
+            setDraft(event.target.value);
+          }}
           onKeyDown={handleKeyDown}
         />
         <button
           className="composer__voice"
           type="button"
-          aria-label={isListening ? "Detener dictado" : "Usar dictado por voz"}
+          aria-label={isListening ? "Detener dictado" : isConnecting ? "Conectando micrófono…" : "Usar dictado por voz"}
           aria-pressed={isListening}
           disabled={isBusy}
-          title={isListening ? "Detener dictado" : "Usar dictado por voz"}
+          title={isListening ? "Detener dictado" : isConnecting ? "Conectando micrófono…" : "Usar dictado por voz"}
           onClick={handleVoiceInput}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -127,20 +180,22 @@ export function PromptComposer() {
         </button>
         <button
           className="composer__submit"
-          data-mode={isBusy ? "cancel" : "send"}
-          type={isBusy ? "button" : "submit"}
-          disabled={!isBusy && !canSubmit}
-          aria-label={isBusy ? "Cancelar consulta" : "Enviar consulta"}
-          onClick={isBusy ? cancel : undefined}
+          data-mode={isBusy ? "cancel" : isListening || isConnecting ? "review" : "send"}
+          type={isBusy || isListening || isConnecting ? "button" : "submit"}
+          disabled={!isBusy && !canSubmit && !isListening && !isConnecting}
+          aria-label={isBusy ? "Cancelar consulta" : isListening || isConnecting ? "Terminar dictado para revisar" : "Enviar consulta"}
+          onClick={isBusy ? cancel : isListening || isConnecting ? () => stopVoiceInput() : undefined}
         >
-          <span>{isBusy ? "Cancelar" : "Enviar"}</span>
+          <span>{isBusy ? "Cancelar" : isListening || isConnecting ? "Revisar" : "Enviar"}</span>
           <svg viewBox="0 0 20 20" aria-hidden="true">
-            {isBusy ? <rect x="6.5" y="6.5" width="7" height="7" rx="1" /> : <path d="M4 10h12M11 5l5 5-5 5" />}
+            {isBusy || isListening || isConnecting ? <rect x="6.5" y="6.5" width="7" height="7" rx="1" /> : <path d="M4 10h12M11 5l5 5-5 5" />}
           </svg>
         </button>
       </form>
-      <p className="composer-region__hint">
-        <span aria-live="polite">{voiceMessage || (isListening ? "Escuchando…" : "Enter para enviar · Shift + Enter para una nueva línea")}</span>
+      <p className="composer-region__hint" data-voice-phase={voicePhase}>
+        <span aria-live="polite">
+          {voiceMessage || (isConnecting ? "Conectando micrófono…" : isListening ? "Escuchando…" : voicePhase === "ready" ? "Dictado listo: revisa importes y fechas antes de enviar" : "Enter para enviar · Shift + Enter para una nueva línea")}
+        </span>
         <span>Verifica la información antes de tomar una decisión financiera.</span>
       </p>
     </footer>

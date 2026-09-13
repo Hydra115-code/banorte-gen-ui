@@ -7,6 +7,26 @@ import type { TableNode } from "../schemas/table-node";
 import { buildTablePage, formatTableCell, tableStatus, type IndexedTableRow, type TableSortState } from "./table-model";
 import { TablePagination } from "./TablePagination";
 import { useInteractionEvent } from "../interactions/events/UIEventProvider";
+import { localizeDisplayValue } from "../data-binding/formatting/format-data-value";
+
+const localizedColumnLabels: Readonly<Record<string, string>> = {
+  accounttype: "Tipo de cuenta",
+  accountid: "Cuenta",
+  accountnumber: "Cuenta",
+  currentbalance: "Saldo actual",
+  availablebalance: "Saldo disponible",
+  description: "Descripción",
+  category: "Categoría",
+  amount: "Importe",
+  currency: "Moneda",
+  date: "Fecha",
+  status: "Estado",
+};
+
+function columnLabel(label: string) {
+  const key = label.replace(/[\s_-]/gu, "").toLocaleLowerCase("es-MX");
+  return localizedColumnLabels[key] ?? localizeDisplayValue(label);
+}
 
 interface TableProps {
   spec: TableNode;
@@ -134,10 +154,10 @@ export function Table({ spec, data, locale = "es-MX", currency = "MXN" }: TableP
                   >
                     {canSort ? (
                       <button type="button" onClick={() => changeSort(column.field)}>
-                        {column.label}
+                        {columnLabel(column.label)}
                         <span aria-hidden="true">{ariaSort === "ascending" ? "↑" : ariaSort === "descending" ? "↓" : "↕"}</span>
                       </button>
-                    ) : column.label}
+                    ) : columnLabel(column.label)}
                   </th>
                 );
               })}

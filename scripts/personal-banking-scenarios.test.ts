@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { dataRegistrySchema, uiSpecificationSchema, type UINode } from "@banorte/contracts";
 import { maskFinancialIdentifier } from "../src/features/generative-ui/data-binding/formatting/mask-financial-identifier.ts";
+import { formatDataValue, localizeDisplayValue } from "../src/features/generative-ui/data-binding/formatting/format-data-value.ts";
 import {
   availableBalanceScenario,
   monthlySpendingScenario,
@@ -105,5 +106,51 @@ test("ninguna serie mezcla cuenta o moneda y los identificadores quedan enmascar
 
 test("el compositor de texto permanece disponible junto a cualquier resultado", () => {
   const shell = readFileSync(new URL("../src/features/workspace/components/AppShell.tsx", import.meta.url), "utf8");
-  assert.match(shell, /<GenerativeCanvas\s*\/>[\s\S]*<PromptComposer\s*\/>/u);
+  assert.match(shell, /<GenerativeCanvas\b[^>]*\/>[\s\S]*<PromptComposer\s*\/>/u);
+});
+
+test("BP0 presenta exclusivamente la propuesta de banca personal", () => {
+  const header = readFileSync(new URL("../src/features/workspace/components/WorkspaceHeader.tsx", import.meta.url), "utf8");
+  const canvas = readFileSync(new URL("../src/features/workspace/components/GenerativeCanvas.tsx", import.meta.url), "utf8");
+  const composer = readFileSync(new URL("../src/features/workspace/components/PromptComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(header, />Banca personal</u);
+  assert.match(canvas, /Entiende qué cambia en tu dinero/u);
+  assert.match(canvas, /Compara mis gastos de julio y agosto/u);
+  assert.match(canvas, /movimientos que más cambiaron mis gastos/u);
+  assert.match(composer, /Pregunta sobre tus cuentas/u);
+  assert.doesNotMatch(`${header}\n${canvas}`, /educación financiera|prepara un pago|simula un préstamo/iu);
+});
+
+test("BP0 oculta diagnósticos y laboratorios fuera del entorno de desarrollo", () => {
+  const shell = readFileSync(new URL("../src/features/workspace/components/AppShell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /diagnosticsEnabled \? <SystemStatusBar \/>/u);
+  assert.match(shell, /showDeveloperDiagnostics = false/u);
+
+  for (const route of [
+    "payment-safety-harness",
+    "financial-education-harness",
+    "ui-interaction-harness",
+  ]) {
+    const page = readFileSync(new URL(`../src/app/dev/${route}/page.tsx`, import.meta.url), "utf8");
+    assert.match(page, /process\.env\.NODE_ENV !== "development"\) notFound\(\)/u, route);
+  }
+});
+
+test("BP4 reserva una fila real para el compositor sin cubrir el resultado", () => {
+  const styles = readFileSync(new URL("../src/features/workspace/styles/workspace.css", import.meta.url), "utf8");
+  assert.match(styles, /\.workspace\s*\{[\s\S]*?height: 100dvh;[\s\S]*?overflow: hidden;/u);
+  assert.match(styles, /grid-template-rows: 4\.5rem minmax\(0, 1fr\)/u);
+  assert.match(styles, /\.workspace__main\s*\{[\s\S]*?grid-template-rows: minmax\(0, 1fr\) auto;[\s\S]*?overflow: hidden;/u);
+  assert.match(styles, /\.canvas__runtime\s*\{[\s\S]*?min-height: 0;/u);
+  assert.match(styles, /\.composer-region\s*\{[\s\S]*?position: relative;/u);
+});
+
+test("BP4 presenta valores financieros en español con moneda explícita", () => {
+  const options = { locale: "es-MX", currency: "MXN" };
+  assert.match(formatDataValue("750.00", "currency", options) ?? "", /MXN/u);
+  assert.match(formatDataValue(0.337, "percent", options) ?? "", /33[.,]7\s*%/u);
+  assert.equal(localizeDisplayValue("checking"), "Cuenta de cheques");
+  assert.equal(localizeDisplayValue("active"), "Activa");
+  assert.equal(localizeDisplayValue("restaurantes"), "restaurantes");
 });

@@ -4,6 +4,12 @@
   margin: 0;
 }
 
+.ui-flex--direction-column > .ui-runtime-motion-node[data-node-type="visualization"] {
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+}
+
 .ui-visualization--sm { --chart-height: 16rem; }
 .ui-visualization--md { --chart-height: 24rem; }
 .ui-visualization--lg { --chart-height: 34rem; }

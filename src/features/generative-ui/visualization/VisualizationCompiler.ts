@@ -3,6 +3,7 @@ import type { DataValue } from "../data-binding/schemas/data-registry-schema";
 import type { VisualizationNode } from "../schemas/visualization-node";
 import { readDataField } from "../data-binding/resolver/read-data-field";
 import { maskFinancialIdentifier } from "../data-binding/formatting/mask-financial-identifier";
+import { formatDataValue } from "../data-binding/formatting/format-data-value";
 
 export interface VisualizationDataRow {
   [key: string]: DataValue;
@@ -252,6 +253,11 @@ export function compileVisualizationOption(
       ? heatmapOption(spec, rows)
       : cartesianOption(spec, rows);
   const themedMarkOption = applyThemeToMarkOption(markOption, theme);
+  const quantitativeField = spec.encoding.value?.field ?? spec.encoding.y?.field;
+  const isMonetary = quantitativeField !== undefined
+    && /(?:^|_)(?:amount|balance|spending|expense|income|gasto|importe|monto)(?:$|_)/iu.test(quantitativeField);
+  const firstCurrency = rows.find((row) => typeof row.currency === "string" && /^[A-Z]{3}$/u.test(row.currency))?.currency;
+  const currency = typeof firstCurrency === "string" ? firstCurrency : "MXN";
 
   return {
     animation: !options.reducedMotion,
@@ -277,6 +283,11 @@ export function compileVisualizationOption(
       backgroundColor: theme.surface,
       borderColor: theme.border,
       textStyle: { color: theme.text },
+      valueFormatter: isMonetary
+        ? (value) => typeof value === "number"
+          ? formatDataValue(value, "currency", { locale: "es-MX", currency }) ?? "—"
+          : String(value ?? "—")
+        : undefined,
     },
     ...themedMarkOption,
   } as EChartsOption;

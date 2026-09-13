@@ -4,7 +4,7 @@ import {
   safeValidateUIMessages,
   type UIMessageStreamWriter,
 } from "ai";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { errorPayloadSchema, sessionReferenceSchema, type SessionReference } from "@banorte/contracts";
 import {
@@ -23,7 +23,17 @@ import { createUIPatchState, type UIPatchState } from "@/features/generative-ui/
 import { UI_PLANNER_CONTEXT } from "@/features/agent/planner/ui-planner";
 import { GenerationObserver } from "@/features/agent/performance/generation-observer";
 import { MAX_AGENT_REQUEST_BYTES } from "@/shared/security/request-limits";
-import { readSessionCookies } from "@/features/auth/server/session-cookies";
+import { accessTokenNeedsRefresh } from "@/features/auth/server/access-token-expiry";
+import {
+  clearSessionCookies,
+  readSessionCookies,
+  writeSessionCookies,
+} from "@/features/auth/server/session-cookies";
+import {
+  refreshSupabaseSession,
+  SupabaseAuthenticationError,
+  type SupabaseUserSession,
+} from "@/features/auth/server/supabase-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -207,7 +217,30 @@ export async function POST(request: NextRequest) {
 
   const sessionId = input.type === "prompt" ? (input.session?.id ?? crypto.randomUUID()) : input.intent.sessionId;
   const correlationId = input.type === "prompt" ? crypto.randomUUID() : input.intent.correlationId;
-  const { accessToken } = readSessionCookies(request);
+  const cookies = readSessionCookies(request);
+  let accessToken = cookies.accessToken;
+  let refreshedSession: SupabaseUserSession | undefined;
+  if (cookies.refreshToken && (!accessToken || accessTokenNeedsRefresh(accessToken))) {
+    try {
+      refreshedSession = await refreshSupabaseSession(cookies.refreshToken);
+      accessToken = refreshedSession.accessToken;
+    } catch (error) {
+      const response = routeError(
+        error instanceof SupabaseAuthenticationError && error.code === "unavailable" ? 503 : 401,
+        error instanceof SupabaseAuthenticationError && error.code === "unavailable"
+          ? "authentication_unavailable"
+          : "authentication_required",
+        error instanceof SupabaseAuthenticationError && error.code === "unavailable"
+          ? "No fue posible renovar la sesión"
+          : "La sesión expiró; inicia sesión nuevamente",
+        correlationId,
+      );
+      if (!(error instanceof SupabaseAuthenticationError) || error.code !== "unavailable") {
+        clearSessionCookies(response);
+      }
+      return response;
+    }
+  }
   if (!accessToken) {
     return routeError(401, "authentication_required", "Autenticación requerida", correlationId);
   }
@@ -223,6 +256,65 @@ export async function POST(request: NextRequest) {
     requestReceivedAt: input.requestReceivedAt,
     requestBytes: input.requestBytes,
   });
+
+  const createAgentStream = (token: string) => input.type === "prompt"
+    ? streamPlannedAgent({
+        accessToken: token,
+        provider,
+        prompt: input.prompt,
+        signal: request.signal,
+        sessionId,
+        correlationId,
+        ...(input.session ? { sessionState: input.session.state } : {}),
+      })
+    : streamPlannedAgent({
+        accessToken: token,
+        provider,
+        intent: input.intent,
+        initialState: input.initialState,
+        signal: request.signal,
+        sessionId,
+        correlationId,
+      });
+
+  let preparedStream: AsyncGenerator<ValidatedAgentEvent> | undefined;
+  let firstEvent: IteratorResult<ValidatedAgentEvent> | undefined;
+  let preparationError: unknown;
+  if (input.type === "prompt" && cookies.refreshToken && !refreshedSession) {
+    preparedStream = createAgentStream(accessToken);
+    try {
+      firstEvent = await preparedStream.next();
+    } catch (error) {
+      if (error instanceof AgentApiError && error.code === "authentication_required") {
+        try {
+          refreshedSession = await refreshSupabaseSession(cookies.refreshToken);
+          accessToken = refreshedSession.accessToken;
+          preparedStream = createAgentStream(accessToken);
+          firstEvent = await preparedStream.next();
+        } catch (retryError) {
+          if (retryError instanceof SupabaseAuthenticationError) {
+            const unavailable = retryError.code === "unavailable";
+            const response = routeError(
+              unavailable ? 503 : 401,
+              unavailable ? "authentication_unavailable" : "authentication_required",
+              unavailable ? "No fue posible renovar la sesión" : "La sesión expiró; inicia sesión nuevamente",
+              correlationId,
+            );
+            if (!unavailable) clearSessionCookies(response);
+            return response;
+          }
+          if (retryError instanceof AgentApiError && retryError.code === "authentication_required") {
+            const response = routeError(401, "authentication_required", retryError.message, correlationId);
+            clearSessionCookies(response);
+            return response;
+          }
+          preparationError = retryError;
+        }
+      } else {
+        preparationError = error;
+      }
+    }
+  }
 
   const stream = createUIMessageStream<AgentUIMessage>({
     execute: async ({ writer }) => {
@@ -258,25 +350,13 @@ export async function POST(request: NextRequest) {
 
       let hasAgentError = false;
       try {
-        const agentStream = input.type === "prompt"
-          ? streamPlannedAgent({
-              accessToken,
-              provider,
-              prompt: input.prompt,
-              signal: request.signal,
-              sessionId,
-              correlationId,
-              ...(input.session ? { sessionState: input.session.state } : {}),
-            })
-          : streamPlannedAgent({
-            accessToken,
-            provider,
-            intent: input.intent,
-            initialState: input.initialState,
-            signal: request.signal,
-            sessionId,
-            correlationId,
-          });
+        if (preparationError) throw preparationError;
+        const agentStream = preparedStream ?? createAgentStream(accessToken);
+        if (firstEvent && !firstEvent.done) {
+          observer.observe(firstEvent.value);
+          writeAgentEvent(writer, firstEvent.value, textState);
+          if (firstEvent.value.type === "error") hasAgentError = true;
+        }
         for await (const event of agentStream) {
           observer.observe(event);
           writeAgentEvent(writer, event, textState);
@@ -324,7 +404,7 @@ export async function POST(request: NextRequest) {
     onError: () => "No fue posible completar la consulta",
   });
 
-  return createUIMessageStreamResponse({
+  const streamResponse = createUIMessageStreamResponse({
     stream,
     headers: {
       "Cache-Control": "no-store",
@@ -333,10 +413,19 @@ export async function POST(request: NextRequest) {
       "X-Session-ID": sessionId,
     },
   });
+  if (!refreshedSession) return streamResponse;
+
+  const response = new NextResponse(streamResponse.body, {
+    status: streamResponse.status,
+    statusText: streamResponse.statusText,
+    headers: streamResponse.headers,
+  });
+  writeSessionCookies(response, refreshedSession);
+  return response;
 }
 
 function routeError(status: number, code: string, message: string, correlationId: string) {
-  return Response.json(errorPayloadSchema.parse({
+  return NextResponse.json(errorPayloadSchema.parse({
     version: "1",
     code,
     message,

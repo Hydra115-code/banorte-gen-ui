@@ -30,7 +30,8 @@ test("la interacción viaja sin prompt por Vercel AI SDK y conserva JWT en servi
   assert.match(session, /sendMessage\(undefined, \{ body: \{ submittedAt: Date(?:\.now\(\)|[^}]+), uiEvent: intent \} \}\)/u);
   assert.match(route, /input\.type === "ui-event"/u);
   assert.match(route, /initialState: input\.initialState/u);
-  assert.match(route, /accessToken,/u);
+  assert.match(route, /accessToken: token,/u);
+  assert.match(route, /createAgentStream\(accessToken\)/u);
   assert.match(provider, /uiEvent: request\.input\.intent/u);
 });
 
@@ -53,7 +54,7 @@ test("la política separa eventos visuales, análisis y acciones financieras", (
 });
 
 test("el harness L7 usa el AppShell productivo y no contiene una UI financiera fija", () => {
-  assert.match(harness, /<AppShell diagnostics=\{<StaleSimulationDiagnostic \/>\} \/>/u);
+  assert.match(harness, /<AppShell diagnostics=\{<StaleSimulationDiagnostic \/>\} showDeveloperDiagnostics \/>/u);
   assert.match(harness, /\/api\/auth\/session/u);
   assert.doesNotMatch(harness, /UISpecification|paymentCaptureSpecification|simulation\.changed/u);
 });

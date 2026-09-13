@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { errorPayloadSchema } from "@banorte/contracts";
 import {
+  refreshSupabaseSession,
   SupabaseAuthenticationError,
   signInWithPassword,
+  verifySupabaseUser,
 } from "@/features/auth/server/supabase-session";
-import { clearSessionCookies, writeSessionCookies } from "@/features/auth/server/session-cookies";
+import { clearSessionCookies, readSessionCookies, writeSessionCookies } from "@/features/auth/server/session-cookies";
+import { accessTokenNeedsRefresh } from "@/features/auth/server/access-token-expiry";
+import { demoLoginAvailable } from "@/features/auth/server/demo-availability";
+import { sessionOwnerKey } from "@/features/auth/server/session-owner-key";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +20,41 @@ const credentialsSchema = z.object({
   email: z.string().trim().email().max(254),
   password: z.string().min(8).max(256),
 }).strict();
+
+export async function GET(request: NextRequest) {
+  const correlationId = crypto.randomUUID();
+  const cookies = readSessionCookies(request);
+  if (!cookies.accessToken && !cookies.refreshToken) return sessionStatus(false, correlationId);
+
+  try {
+    if (cookies.accessToken && !accessTokenNeedsRefresh(cookies.accessToken)) {
+      try {
+        const userId = await verifySupabaseUser(cookies.accessToken);
+        return sessionStatus(true, correlationId, sessionOwnerKey(userId));
+      } catch (error) {
+        if (!(error instanceof SupabaseAuthenticationError)
+          || error.code !== "invalid_credentials"
+          || !cookies.refreshToken) throw error;
+      }
+    }
+    if (!cookies.refreshToken) {
+      const response = sessionStatus(false, correlationId);
+      clearSessionCookies(response);
+      return response;
+    }
+    const session = await refreshSupabaseSession(cookies.refreshToken);
+    const response = sessionStatus(true, correlationId, sessionOwnerKey(session.userId));
+    writeSessionCookies(response, session);
+    return response;
+  } catch (error) {
+    if (error instanceof SupabaseAuthenticationError && error.code === "invalid_credentials") {
+      const response = sessionStatus(false, correlationId);
+      clearSessionCookies(response);
+      return response;
+    }
+    return authError(503, "authentication_unavailable", "No fue posible comprobar la sesión", correlationId);
+  }
+}
 
 export async function POST(request: NextRequest) {
   const correlationId = crypto.randomUUID();
@@ -65,6 +105,14 @@ export async function DELETE() {
   );
   clearSessionCookies(response);
   return response;
+}
+
+function sessionStatus(authenticated: boolean, correlationId: string, ownerKey?: string) {
+  return NextResponse.json({
+    authenticated,
+    demoAvailable: demoLoginAvailable(),
+    ...(ownerKey ? { ownerKey } : {}),
+  }, { headers: responseHeaders(correlationId) });
 }
 
 function authError(status: number, code: string, message: string, correlationId: string) {

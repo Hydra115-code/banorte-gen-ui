@@ -76,6 +76,7 @@ export function RuntimeMotionNode({ children, isPending = false, node, position 
     <m.div
       animate={controls}
       className="ui-runtime-motion-node"
+      data-node-type={node.type}
       data-entering={isEntering || undefined}
       data-motion-state={motionState}
       exit="remove"

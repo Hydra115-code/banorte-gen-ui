@@ -37,8 +37,9 @@
     "typecheck": "pnpm contracts:build && tsc --noEmit"
   },
   "dependencies": {
-    "@banorte/contracts": "workspace:*",
     "@ai-sdk/react": "4.0.96",
+    "@banorte/contracts": "workspace:*",
+    "@elevenlabs/client": "^1.25.0",
     "ai": "7.0.93",
     "echarts": "^6.1.0",
     "motion": "^13.2.0",

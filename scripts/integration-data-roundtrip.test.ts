@@ -8,6 +8,7 @@ import {
 import { requestSupabaseSession } from "../src/features/auth/server/supabase-session-request.ts";
 import { fetchFinancialSummary } from "../src/features/integration/server/financial-summary-wire.ts";
 import { i3FinancialSummarySpecification } from "../src/features/integration/fixtures/i3-financial-summary-fixture.ts";
+import { accessTokenNeedsRefresh } from "../src/features/auth/server/access-token-expiry.ts";
 
 process.env.SUPABASE_URL = "https://project.supabase.co";
 process.env.SUPABASE_PUBLISHABLE_KEY = "publishable-key-with-sufficient-test-length";
@@ -124,4 +125,22 @@ test("las rutas conservan JWT y refresh token en cookies HttpOnly estrictas", ()
   assert.match(dataRoute, /readSessionCookies\(request\)/u);
   assert.match(dataRoute, /if \(cookies\.refreshToken\)/u);
   assert.doesNotMatch(dataRoute, /AGENT_API_TOKEN/u);
+});
+
+test("la ruta principal renueva preventivamente una sesión expirada", () => {
+  const now = Date.UTC(2026, 8, 12, 12, 0, 0);
+  const jwt = (expiresAtSeconds: number) => [
+    Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url"),
+    Buffer.from(JSON.stringify({ exp: expiresAtSeconds })).toString("base64url"),
+    "signature",
+  ].join(".");
+
+  assert.equal(accessTokenNeedsRefresh(jwt(now / 1_000 + 30), now), true);
+  assert.equal(accessTokenNeedsRefresh(jwt(now / 1_000 + 3_600), now), false);
+  assert.equal(accessTokenNeedsRefresh("malformed-token", now), true);
+
+  const agentRoute = readFileSync(new URL("../src/app/api/agent/route.ts", import.meta.url), "utf8");
+  assert.match(agentRoute, /refreshSupabaseSession\(cookies\.refreshToken\)/u);
+  assert.match(agentRoute, /writeSessionCookies\(response, refreshedSession\)/u);
+  assert.doesNotMatch(agentRoute, /accessToken:\s*refreshedSession\.accessToken/u);
 });

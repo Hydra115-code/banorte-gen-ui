@@ -179,6 +179,9 @@ export async function* streamAgent({
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new AgentApiError("La sesión expiró; inicia sesión nuevamente", "authentication_required", false);
+    }
     throw new AgentApiError("El Agent API rechazó la solicitud", "agent_api_rejected");
   }
 

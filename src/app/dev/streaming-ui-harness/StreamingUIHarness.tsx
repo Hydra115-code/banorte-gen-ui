@@ -36,7 +36,7 @@ export function StreamingUIHarness() {
           <strong>Harness local · Integration I6</strong>
           <span>Observa estado, datos, primera UI útil y composición final en el flujo productivo.</span>
         </aside>
-        <AppShell />
+        <AppShell showDeveloperDiagnostics />
       </>
     );
   }

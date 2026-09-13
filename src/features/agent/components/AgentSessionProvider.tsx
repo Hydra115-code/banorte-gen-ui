@@ -39,6 +39,8 @@ import {
   type AgentFailurePresentation,
 } from "../recovery/agent-error-presentation";
 import {
+  clearSessionArchive,
+  isPersonalBankingAnalysisTitle,
   loadSessionArchive,
   saveSessionArchive,
   type PersistedAnalysisSnapshot,
@@ -118,8 +120,19 @@ interface AgentSessionValue {
 
 const AgentSessionContext = createContext<AgentSessionValue | null>(null);
 const MAX_ANALYSIS_HISTORY = 8;
+class AgentTransportError extends Error {
+  constructor(readonly code: "authentication_required") {
+    super("La sesión de acceso ya no está disponible");
+    this.name = "AgentTransportError";
+  }
+}
 const transport = new DefaultChatTransport<AgentUIMessage>({
   api: "/api/agent",
+  fetch: async (input, init) => {
+    const response = await fetch(input, init);
+    if (response.status === 401) throw new AgentTransportError("authentication_required");
+    return response;
+  },
   prepareSendMessagesRequest: ({ messages, body }) => {
     if (body?.uiEvent) return { body: { ...body, uiEvent: body.uiEvent } };
     const latestUserMessage = messages.findLast((message) => message.role === "user");
@@ -187,7 +200,7 @@ function failureScopeFromCode(code: string): "conversation" | "ui" | "data_regis
   return "conversation";
 }
 
-export function AgentSessionProvider({ children }: { children: ReactNode }) {
+export function AgentSessionProvider({ children, ownerKey }: { children: ReactNode; ownerKey: string }) {
   const dispatchExperience = useWorkspaceStore((state) => state.dispatchExperience);
   const setError = useWorkspaceStore((state) => state.setError);
   const [generatedInterface, setGeneratedInterface] = useState<GeneratedInterface>();
@@ -221,6 +234,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
   const [canRetry, setCanRetry] = useState(false);
   const [changeSummary, setChangeSummary] = useState<UIChangeSummary>();
   const [failure, setFailure] = useState<AgentFailurePresentation>();
+  const [suppressedAnswerId, setSuppressedAnswerId] = useState<string>();
   const [frontendPerformance, setFrontendPerformance] = useState<FrontendPerformanceSummary>();
   const [activityMessage, setActivityMessage] = useState("Listo para analizar tus finanzas");
   const [sessionTitle, setSessionTitle] = useState<string>();
@@ -475,6 +489,10 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
             : { frontendTimeToFirstUsefulUiMs: frontendTimeToFirstUsefulUiRef.current }),
         });
       } else if (part.type === "data-agentError") {
+        if (part.data.code === "authentication_required") {
+          useWorkspaceStore.setState({ draft: lastPromptRef.current ?? useWorkspaceStore.getState().draft });
+          window.dispatchEvent(new Event("banorte:authentication-required"));
+        }
         if (part.data.correlationId) setCorrelationId(part.data.correlationId);
         failGracefully(
           part.data.message,
@@ -485,7 +503,13 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
         );
       }
     },
-    onError: () => {
+    onError: (error) => {
+      if (error instanceof AgentTransportError) {
+        useWorkspaceStore.setState({ draft: lastPromptRef.current ?? useWorkspaceStore.getState().draft });
+        window.dispatchEvent(new Event("banorte:authentication-required"));
+        failGracefully(error.message, false, error.code);
+        return;
+      }
       failGracefully("No fue posible conectar con el agente.", true, "network_lost");
     },
   });
@@ -496,17 +520,21 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     if (hasAttemptedHydrationRef.current) return;
     hasAttemptedHydrationRef.current = true;
 
-    const archive = loadSessionArchive(window.sessionStorage);
+    const archive = loadSessionArchive(window.sessionStorage, ownerKey);
     if (!archive) return;
 
     const restoredSnapshots = archive.snapshots
+      .filter((snapshot) => isPersonalBankingAnalysisTitle(snapshot.title))
       .map(restoreAnalysisSnapshot)
       .filter((snapshot): snapshot is AnalysisSnapshot => snapshot !== null);
-    if (restoredSnapshots.length === 0) return;
+    if (restoredSnapshots.length === 0) {
+      clearSessionArchive(window.sessionStorage);
+      return;
+    }
 
     setAnalysisSnapshots(restoredSnapshots);
-    if (!archive.activeAnalysisId) return;
-    const activeSnapshot = restoredSnapshots.find((snapshot) => snapshot.id === archive.activeAnalysisId);
+    const activeSnapshot = restoredSnapshots.find((snapshot) => snapshot.id === archive.activeAnalysisId)
+      ?? restoredSnapshots[0];
     if (!activeSnapshot) return;
     sessionIdRef.current = activeSnapshot.id;
     patchStateRef.current = activeSnapshot.patchState;
@@ -520,9 +548,13 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     setChangeSummary(activeSnapshot.changeSummary);
     setFailure(undefined);
     setActivityMessage("Análisis restaurado en esta pestaña");
-    useWorkspaceStore.setState({ activePrompt: activeSnapshot.title, draft: "", errorMessage: null });
+    useWorkspaceStore.setState({
+      activePrompt: activeSnapshot.title,
+      draft: useWorkspaceStore.getState().draft,
+      errorMessage: null,
+    });
     dispatchExperience({ type: "RESTORE_SESSION" });
-  }, [dispatchExperience, setMessages, updateGeneratedInterface]);
+  }, [dispatchExperience, ownerKey, setMessages, updateGeneratedInterface]);
 
   useEffect(() => {
     const startedAt = renderStartedAtRef.current;
@@ -554,11 +586,12 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
 
   const answer = useMemo(() => {
     const assistantMessage = messages.findLast((message) => message.role === "assistant");
+    if (assistantMessage?.id === suppressedAnswerId) return "";
     return assistantMessage?.parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("") ?? "";
-  }, [messages]);
+  }, [messages, suppressedAnswerId]);
 
   useEffect(() => {
     const id = activeAnalysisId;
@@ -590,6 +623,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     if (!hasAttemptedHydrationRef.current || analysisSnapshots.length === 0) return;
     saveSessionArchive(window.sessionStorage, {
       version: "1",
+      ownerKey,
       savedAt: Date.now(),
       ...(activeAnalysisId ? { activeAnalysisId } : {}),
       snapshots: analysisSnapshots.map((snapshot) => ({
@@ -610,7 +644,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
           : {}),
       })),
     });
-  }, [activeAnalysisId, analysisSnapshots]);
+  }, [activeAnalysisId, analysisSnapshots, ownerKey]);
 
   const sendPrompt = useCallback(async (prompt: string) => {
     if (synchronizationBlockedRef.current) {
@@ -626,6 +660,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     isInteractionRequestRef.current = false;
     setCanRetry(false);
     setFailure(undefined);
+    setSuppressedAnswerId(messages.findLast((message) => message.role === "assistant")?.id);
     setPendingNodeIds(new Set());
     setPerformance(undefined);
     setRuntimeDiagnostics(undefined);
@@ -671,7 +706,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     dataStateRef.current = createDataRegistryPatchState();
     updateGeneratedInterface(undefined);
     await sendMessage({ text: prompt }, { body: { submittedAt } });
-  }, [discardBatchedCommit, sendMessage, updateGeneratedInterface]);
+  }, [discardBatchedCommit, messages, sendMessage, updateGeneratedInterface]);
 
   const startNewSession = useCallback(() => {
     recoveryEpochRef.current += 1;
@@ -701,6 +736,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     setCanRetry(false);
     setChangeSummary(undefined);
     setFailure(undefined);
+    setSuppressedAnswerId(undefined);
     setActivityMessage("Listo para analizar tus finanzas");
     setActiveAnalysisId(undefined);
     setSessionTitle(undefined);
@@ -733,6 +769,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     setCanRetry(false);
     setChangeSummary(snapshot.changeSummary);
     setFailure(undefined);
+    setSuppressedAnswerId(undefined);
     setActivityMessage("Análisis restaurado");
     useWorkspaceStore.setState({ activePrompt: snapshot.title, draft: "", errorMessage: null });
     dispatchExperience({ type: "RESTORE_SESSION" });
@@ -751,12 +788,13 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
     setCanRetry(false);
     setChangeSummary(undefined);
     setFailure(undefined);
+    setSuppressedAnswerId(messages.findLast((message) => message.role === "assistant")?.id);
     setActivityMessage("Actualizando este análisis");
     setPendingNodeIds((current) => new Set(current).add(intent.event.sourceId));
     dispatchExperience({ type: "UI_UPDATE_STARTED" });
     void sendMessage(undefined, { body: { submittedAt: Date.now(), uiEvent: intent } });
     return true;
-  }, [dispatchExperience, sendMessage]);
+  }, [dispatchExperience, messages, sendMessage]);
 
   const handleUIEvent = useCallback((event: LocalUIEvent) => {
     const policy = classifyInteractionEvent(event.name);
@@ -766,6 +804,7 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
           formDraftsRef.current.delete(formDraftsRef.current.keys().next().value!);
         }
         formDraftsRef.current.set(`${sessionIdRef.current}:${event.sourceId}`, event.value);
+        setFailure((current) => current?.code === "form_validation" ? undefined : current);
       }
       setActivityMessage("Cambio visual aplicado localmente");
       return;
@@ -801,7 +840,13 @@ export function AgentSessionProvider({ children }: { children: ReactNode }) {
       : undefined;
     if (formValues === null) {
       setActivityMessage("Completa los campos requeridos antes de revisar");
-      setError("Selecciona origen y destinatario y revisa los campos del formulario.", "ui");
+      setCanRetry(false);
+      setFailure(presentAgentFailure({
+        code: "form_validation",
+        message: "Selecciona origen y destinatario y completa monto y moneda antes de revisar el pago.",
+        recoverable: false,
+        hasPartialData: true,
+      }));
       return;
     }
     const intent = agentUIIntentSchema.safeParse({

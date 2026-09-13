@@ -3,6 +3,7 @@ import type { DataValue } from "../data-binding/schemas/data-registry-schema";
 import type { VisualizationNode } from "../schemas/visualization-node";
 import type { VisualizationDataRow } from "./VisualizationCompiler";
 import { maskFinancialIdentifier } from "../data-binding/formatting/mask-financial-identifier";
+import { formatDataValue, localizeDisplayValue } from "../data-binding/formatting/format-data-value";
 
 interface VisualizationDataTableProps {
   rows: VisualizationDataRow[];
@@ -30,15 +31,23 @@ function getAccessibleColumns(spec: VisualizationNode): AccessibleColumn[] {
   return [...columns.values()];
 }
 
-function formatAccessibleValue(value: DataValue | undefined, field: string) {
+const monetaryField = /(?:^|_)(?:amount|balance|spending|expense|income|gasto|importe|monto)(?:$|_)/iu;
+
+function formatAccessibleValue(value: DataValue | undefined, field: string, row: VisualizationDataRow) {
   if (value === null || value === undefined) return "Sin dato";
   const masked = maskFinancialIdentifier(field, value);
   if (masked) return masked;
   if (typeof value === "number") {
+    if (monetaryField.test(field)) {
+      const currency = typeof row.currency === "string" && /^[A-Z]{3}$/u.test(row.currency)
+        ? row.currency
+        : "MXN";
+      return formatDataValue(value, "currency", { locale: "es-MX", currency }) ?? "Sin dato";
+    }
     return new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 }).format(value);
   }
   if (typeof value === "boolean") return value ? "Sí" : "No";
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return localizeDisplayValue(value);
   return "Dato no textual";
 }
 
@@ -64,7 +73,7 @@ export function VisualizationDataTable({ rows, spec }: VisualizationDataTablePro
             {visibleRows.map((row, rowIndex) => (
               <tr key={rowIndex}>
                 {columns.map((column) => (
-                  <td key={column.field}>{formatAccessibleValue(readDataField(row, column.field), column.field)}</td>
+                  <td key={column.field}>{formatAccessibleValue(readDataField(row, column.field), column.field, row)}</td>
                 ))}
               </tr>
             ))}

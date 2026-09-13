@@ -78,7 +78,7 @@ const allowedEvents: Record<ExperienceStatus, ReadonlySet<ExperienceEvent["type"
   awaiting_confirmation: new Set(["PAYMENT_CONFIRMED", "CANCEL", "FAIL", "RESET"]),
   executing_action: new Set(["PAYMENT_COMPLETED", "PARTIAL_AVAILABLE", "FAIL", "RESET"]),
   partial: new Set(["SUBMIT", "UI_UPDATE_STARTED", "UI_COMMITTED", "RESTORE_SESSION", "RESET"]),
-  error: new Set(["SUBMIT", "RESTORE_SESSION", "RESET"]),
+  error: new Set(["SUBMIT", "UI_UPDATE_STARTED", "RESTORE_SESSION", "RESET"]),
   cancelled: new Set(["SUBMIT", "RESTORE_SESSION", "RESET"]),
 };
 
@@ -167,6 +167,10 @@ export function transitionExperience(
   event: ExperienceEvent,
 ): ExperienceTransition {
   if (!allowedEvents[current.status].has(event.type)) {
+    return { accepted: false, state: current, reason: "invalid_transition" };
+  }
+
+  if (current.status === "error" && event.type === "UI_UPDATE_STARTED" && !current.hasValidSnapshot) {
     return { accepted: false, state: current, reason: "invalid_transition" };
   }
 

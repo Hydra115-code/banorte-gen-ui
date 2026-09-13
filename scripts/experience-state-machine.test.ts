@@ -101,6 +101,25 @@ test("un error del agente no convierte el estado del pago en fallido", () => {
   assert.equal(failed.state.domains.payment, "idle");
 });
 
+test("una captura corregida puede actualizar la UI después de un error conservando el snapshot", () => {
+  const ready = transitionExperience(createInitialExperienceState(), { type: "RESTORE_SESSION" });
+  assert.equal(ready.accepted, true);
+  const failed = transitionExperience(ready.state, { type: "FAIL", scope: "ui" });
+  assert.equal(failed.accepted, true);
+  const updating = transitionExperience(failed.state, { type: "UI_UPDATE_STARTED" });
+  assert.equal(updating.accepted, true);
+  const committed = transitionExperience(updating.state, { type: "UI_COMMITTED" });
+  assert.equal(committed.accepted, true);
+  assert.equal(committed.state.status, "ready");
+  assert.equal(committed.state.domains.ui, "stable");
+
+  const emptyFailure = transitionExperience(createInitialExperienceState(), { type: "SUBMIT" });
+  assert.equal(emptyFailure.accepted, true);
+  const withoutSnapshot = transitionExperience(emptyFailure.state, { type: "FAIL", scope: "ui" });
+  assert.equal(withoutSnapshot.accepted, true);
+  assert.equal(transitionExperience(withoutSnapshot.state, { type: "UI_UPDATE_STARTED" }).accepted, false);
+});
+
 test("un conflicto de revisión entra a recuperación de datos", () => {
   const restored = transitionExperience(createInitialExperienceState(), { type: "RESTORE_SESSION" });
   assert.equal(restored.accepted, true);

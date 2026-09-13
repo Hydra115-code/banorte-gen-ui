@@ -17,13 +17,23 @@ export function presentAgentFailure(input: AgentFailureInput): AgentFailurePrese
   const code = input.code.toLowerCase();
   const canContinue = input.hasPartialData === true;
 
-  if (code.includes("session_expired") || code.includes("authentication_expired") || code.includes("auth_expired")) {
+  if (code.includes("form_validation")) {
+    return {
+      code: input.code,
+      title: "Revisa los datos del pago",
+      message: input.message ?? "Completa los campos requeridos antes de revisar el pago.",
+      canRetry: false,
+      canContinue: false,
+    };
+  }
+
+  if (code.includes("session_expired") || code.includes("authentication_expired") || code.includes("authentication_required") || code.includes("auth_expired")) {
     return {
       code: input.code,
       title: "Tu sesión expiró",
       message: canContinue
-        ? "Conservamos la información visible, pero necesitas iniciar una sesión nueva antes de consultar o confirmar otra operación."
-        : "Inicia una sesión nueva antes de volver a consultar o confirmar una operación.",
+        ? "Conservamos la información visible. Recarga la página e inicia sesión antes de consultar o confirmar otra operación."
+        : "Recarga la página e inicia sesión antes de volver a consultar o confirmar una operación.",
       canRetry: false,
       canContinue,
     };

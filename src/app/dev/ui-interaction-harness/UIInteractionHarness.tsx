@@ -45,7 +45,7 @@ export function UIInteractionHarness() {
           <strong>Harness local · Integration I7</strong>
           <span>Modifica un control generado y observa el ciclo UIEvent → Agent → MCP → DataPatch/UIPatch.</span>
         </aside>
-        <AppShell diagnostics={<StaleSimulationDiagnostic />} />
+        <AppShell diagnostics={<StaleSimulationDiagnostic />} showDeveloperDiagnostics />
       </>
     );
   }

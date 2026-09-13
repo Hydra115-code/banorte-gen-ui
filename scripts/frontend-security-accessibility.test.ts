@@ -15,8 +15,10 @@ import { shouldExposeRuntimeDiagnostics } from "../src/shared/security/runtime-d
 const frontendRoot = new URL("../src/", import.meta.url);
 
 test("los diagnósticos internos sólo se exponen en desarrollo", () => {
-  assert.equal(shouldExposeRuntimeDiagnostics("development"), true);
+  assert.equal(shouldExposeRuntimeDiagnostics("development"), false);
+  assert.equal(shouldExposeRuntimeDiagnostics("development", true), true);
   assert.equal(shouldExposeRuntimeDiagnostics("production"), false);
+  assert.equal(shouldExposeRuntimeDiagnostics("production", true), false);
   assert.equal(shouldExposeRuntimeDiagnostics("test"), false);
   assert.equal(shouldExposeRuntimeDiagnostics(undefined), false);
 });
@@ -87,6 +89,15 @@ test("el runtime no usa HTML ejecutable ni persiste datos en localStorage", () =
   const source = files.map((path) => readFileSync(new URL(path, frontendRoot), "utf8")).join("\n");
   assert.doesNotMatch(source, /dangerouslySetInnerHTML|\beval\s*\(|new Function|localStorage/u);
   const canvas = readFileSync(new URL("features/workspace/components/GenerativeCanvas.tsx", frontendRoot), "utf8");
-  assert.match(canvas, /shouldExposeRuntimeDiagnostics\(process\.env\.NODE_ENV\)/u);
+  const shell = readFileSync(new URL("features/workspace/components/AppShell.tsx", frontendRoot), "utf8");
+  assert.match(shell, /shouldExposeRuntimeDiagnostics\(process\.env\.NODE_ENV, showDeveloperDiagnostics\)/u);
+  assert.match(canvas, /showRuntimeDiagnostics/u);
   assert.match(canvas, /tabIndex=\{-1\}/u);
+});
+
+test("BP6 no permite que la ruta de voz sustituya la sesión por un token estático", () => {
+  const route = readFileSync(new URL("../src/app/api/transcription/realtime-session/route.ts", import.meta.url), "utf8");
+  assert.match(route, /readSessionCookies\(request\)/u);
+  assert.match(route, /refreshSupabaseSession\(cookies\.refreshToken\)/u);
+  assert.doesNotMatch(route, /AGENT_API_TOKEN|SUPABASE_ACCESS_TOKEN/u);
 });

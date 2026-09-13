@@ -6,7 +6,6 @@ import { isWorkspaceBusy, type WorkspaceStatus } from "../types/workspace-status
 import { useAgentSession } from "../../agent/components/AgentSessionProvider";
 import { UIRenderer } from "../../generative-ui/renderer/UIRenderer";
 import { UIEventProvider } from "../../generative-ui/interactions/events/UIEventProvider";
-import { shouldExposeRuntimeDiagnostics } from "../../../shared/security/runtime-diagnostics-visibility";
 
 interface StatusContent {
   detail: string;
@@ -17,8 +16,8 @@ interface StatusContent {
 const statusContent: Record<WorkspaceStatus, StatusContent> = {
   empty: {
     label: "Listo para comenzar",
-    title: "¿Qué quieres entender de tus finanzas?",
-    detail: "Describe lo que necesitas. La interfaz se adaptará a tu consulta.",
+    title: "Entiende qué cambia en tu dinero",
+    detail: "Consulta tus cuentas, compara periodos y descubre qué movimientos explican tus gastos.",
   },
   submitting: {
     label: "Analizando",
@@ -73,9 +72,9 @@ const statusContent: Record<WorkspaceStatus, StatusContent> = {
 };
 
 const suggestedPrompts = [
-  "Compara mis últimos meses",
-  "Muéstrame patrones importantes",
-  "Explícame un cambio reciente",
+  "¿Por qué ahorré menos este mes aunque gané lo mismo?",
+  "Compara mis gastos de julio y agosto",
+  "Muéstrame los movimientos que más cambiaron mis gastos",
 ] as const;
 
 const processSteps = ["Comprendiendo", "Consultando", "Construyendo"] as const;
@@ -106,11 +105,17 @@ function formatUpdatedAt(timestamp: number) {
 function summarizeAnswer(answer: string) {
   const paragraph = answer.trim().split(/\n\s*\n/u).find((item) => item.trim() && !item.trim().startsWith("```"));
   if (!paragraph) return "";
-  const plainText = paragraph.replace(/[*_#`]/gu, "").trim();
+  const plainText = paragraph
+    .replace(/^\s*\[?OBSERVED\]?\s*:?\s*/iu, "")
+    .replace(/^\s*\[?SIMULATED\]?\s*:?\s*/iu, "Escenario simulado: ")
+    .replace(/\btransactionType\s*=\s*transfer\b/giu, "transferencias")
+    .replace(/\(\s*sin registros adicionales pendientes de paginación,?\s*hasMore\s*:\s*false\s*\)/giu, "con el historial completo")
+    .replace(/[*_#`]/gu, "")
+    .trim();
   return plainText.length <= 320 ? plainText : `${plainText.slice(0, 319).trimEnd()}…`;
 }
 
-export function GenerativeCanvas() {
+export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRuntimeDiagnostics?: boolean }) {
   const runtimeRef = useRef<HTMLDivElement>(null);
   const failureRef = useRef<HTMLDivElement>(null);
   const previousRevisionRef = useRef<number | undefined>(undefined);
@@ -144,7 +149,6 @@ export function GenerativeCanvas() {
   const activeProcessStep = getActiveProcessStep(status);
   const hasFinancialData = Object.keys(generatedInterface?.data ?? {}).length > 0;
   const answerSummary = summarizeAnswer(answer);
-  const showRuntimeDiagnostics = shouldExposeRuntimeDiagnostics(process.env.NODE_ENV);
 
   useEffect(() => {
     if (!failure) return;
@@ -175,7 +179,7 @@ export function GenerativeCanvas() {
       <header className="canvas__header">
         <div>
           <p className="canvas__eyebrow">Área de trabajo</p>
-          <h1 id="canvas-title">Análisis financiero</h1>
+          <h1 id="canvas-title">Banca personal</h1>
         </div>
         <span className="canvas__status" data-status={status}>
           <span aria-hidden="true" />
@@ -197,14 +201,11 @@ export function GenerativeCanvas() {
             <header className="canvas-result__header">
               <div>
                 <p className="canvas-result__overline">Análisis activo</p>
-                <h2>{sessionTitle ?? "Resultado financiero"}</h2>
+                <h2>{activePrompt ?? sessionTitle ?? "Resultado financiero"}</h2>
               </div>
               <div className="canvas-result__metadata" aria-label="Estado del resultado">
                 <span>Actualizado {formatUpdatedAt(generatedInterface.updatedAt)}</span>
-                {hasFinancialData ? <span>Datos consultados</span> : null}
-                {generatedInterface.specification
-                  ? <span>{failure ? "Vista válida conservada" : "Interfaz validada"}</span>
-                  : <span>Datos de respaldo · UI no disponible</span>}
+                {hasFinancialData ? <span>Datos actualizados</span> : null}
               </div>
             </header>
             {isProcessing ? (
@@ -216,20 +217,9 @@ export function GenerativeCanvas() {
                 </div>
               </div>
             ) : null}
-            {changeSummary && !isProcessing ? (
-              <section className="canvas-result__changes" aria-live="polite" aria-label="Cambios aplicados">
-                <div>
-                  <p className="canvas-result__overline">Qué cambió</p>
-                  <span>Actualización {changeSummary.revision}</span>
-                </div>
-                <ul>
-                  {changeSummary.items.map((item) => <li key={item}>{item}</li>)}
-                </ul>
-              </section>
-            ) : null}
             {answerSummary ? (
-              <section className="canvas-result__answer" aria-label="Respuesta principal">
-                <p className="canvas-result__overline">Respuesta</p>
+              <section className="canvas-result__answer" aria-label="Conclusión principal" aria-live="polite">
+                <p className="canvas-result__overline">Conclusión</p>
                 <p>{answerSummary}</p>
               </section>
             ) : null}
@@ -265,6 +255,14 @@ export function GenerativeCanvas() {
               />
               </UIEventProvider>
             </div>
+            {changeSummary && !isProcessing ? (
+              <details className="canvas-result__changes">
+                <summary>Cómo se adaptó esta vista</summary>
+                <ul>
+                  {changeSummary.items.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </details>
+            ) : null}
             {showRuntimeDiagnostics && (performance || runtimeDiagnostics) ? (
               <details className="canvas-performance">
                 <summary>Cómo se obtuvo este resultado</summary>
