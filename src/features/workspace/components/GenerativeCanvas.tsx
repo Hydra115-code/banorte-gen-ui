@@ -6,6 +6,7 @@ import { isWorkspaceBusy, type WorkspaceStatus } from "../types/workspace-status
 import { useAgentSession } from "../../agent/components/AgentSessionProvider";
 import { UIRenderer } from "../../generative-ui/renderer/UIRenderer";
 import { UIEventProvider } from "../../generative-ui/interactions/events/UIEventProvider";
+import { isGuidanceOnly } from "../presentation/is-guidance-only";
 
 interface StatusContent {
   detail: string;
@@ -30,9 +31,9 @@ const statusContent: Record<WorkspaceStatus, StatusContent> = {
     detail: "Solo se consultarán las fuentes relevantes para tu petición.",
   },
   generating_ui: {
-    label: "Creando interfaz",
-    title: "Preparando la mejor forma de mostrarlo",
-    detail: "La estructura aparecerá progresivamente en este espacio.",
+    label: "Preparando la vista",
+    title: "Preparando la vista",
+    detail: "Mostraremos la interfaz cuando el análisis esté listo.",
   },
   ready: {
     label: "Actualizado",
@@ -40,9 +41,9 @@ const statusContent: Record<WorkspaceStatus, StatusContent> = {
     detail: "El contenido generado se mostrará aquí.",
   },
   updating: {
-    label: "Actualizando",
-    title: "Aplicando tus cambios",
-    detail: "Conservaremos las partes de la interfaz que siguen siendo útiles.",
+    label: "Preparando cambios",
+    title: "Preparando la vista",
+    detail: "La última vista válida sigue disponible mientras aplicamos el cambio.",
   },
   awaiting_confirmation: {
     label: "Requiere confirmación",
@@ -102,20 +103,7 @@ function formatUpdatedAt(timestamp: number) {
   }).format(timestamp);
 }
 
-function summarizeAnswer(answer: string) {
-  const paragraph = answer.trim().split(/\n\s*\n/u).find((item) => item.trim() && !item.trim().startsWith("```"));
-  if (!paragraph) return "";
-  const plainText = paragraph
-    .replace(/^\s*\[?OBSERVED\]?\s*:?\s*/iu, "")
-    .replace(/^\s*\[?SIMULATED\]?\s*:?\s*/iu, "Escenario simulado: ")
-    .replace(/\btransactionType\s*=\s*transfer\b/giu, "transferencias")
-    .replace(/\(\s*sin registros adicionales pendientes de paginación,?\s*hasMore\s*:\s*false\s*\)/giu, "con el historial completo")
-    .replace(/[*_#`]/gu, "")
-    .trim();
-  return plainText.length <= 320 ? plainText : `${plainText.slice(0, 319).trimEnd()}…`;
-}
-
-export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRuntimeDiagnostics?: boolean }) {
+export function GenerativeCanvas({ showRuntimeDiagnostics = false, onShowChat }: { showRuntimeDiagnostics?: boolean; onShowChat?: () => void }) {
   const runtimeRef = useRef<HTMLDivElement>(null);
   const failureRef = useRef<HTMLDivElement>(null);
   const previousRevisionRef = useRef<number | undefined>(undefined);
@@ -126,15 +114,15 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
   const {
     activityMessage,
     activeAnalysisId,
-    answer,
     canRetry,
     changeSummary,
     correlationId,
     continueWithPartialData,
     failure,
     frontendPerformance,
-    generatedInterface,
+    displayedInterface: generatedInterface,
     handleUIEvent,
+    isHistoricalView,
     pendingNodeIds,
     performance,
     retryLastRequest,
@@ -146,9 +134,11 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
   const content = statusContent[status];
   const isSettled = !isWorkspaceBusy(status);
   const isProcessing = !isSettled;
+  const isPreviousResult = isProcessing || status === "error" || status === "cancelled" || status === "partial";
   const activeProcessStep = getActiveProcessStep(status);
   const hasFinancialData = Object.keys(generatedInterface?.data ?? {}).length > 0;
-  const answerSummary = summarizeAnswer(answer);
+  const guidanceOnly = status === "ready" && !failure && !errorMessage
+    && isGuidanceOnly(generatedInterface?.specification, hasFinancialData);
 
   useEffect(() => {
     if (!failure) return;
@@ -175,7 +165,7 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
   }, [generatedInterface?.revision]);
 
   return (
-    <section className="canvas" aria-labelledby="canvas-title" data-has-result={Boolean(generatedInterface)}>
+    <section className="canvas" aria-labelledby="canvas-title" data-has-result={Boolean(generatedInterface && !guidanceOnly)} data-guidance-only={guidanceOnly || undefined}>
       <header className="canvas__header">
         <div>
           <p className="canvas__eyebrow">Área de trabajo</p>
@@ -183,7 +173,7 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
         </div>
         <span className="canvas__status" data-status={status}>
           <span aria-hidden="true" />
-          {content.label}
+          {isHistoricalView ? "Revisión anterior" : content.label}
         </span>
       </header>
 
@@ -193,35 +183,44 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
         data-status={status}
         aria-busy={!isSettled}
       >
-        <p className="sr-only" role="status">
-          {isProcessing ? activityMessage : content.title}
-        </p>
-        {generatedInterface ? (
+        <p className="sr-only" role="status">{isHistoricalView ? "Revisión anterior de solo lectura" : isProcessing ? activityMessage : content.title}</p>
+        {guidanceOnly ? (
+          <div className="canvas-guidance">
+            <p className="canvas-result__overline">Respuesta en la conversación</p>
+            <h2>Construyamos una vista con tus datos</h2>
+            <p>Esta petición no produjo un análisis visual. Puedes pedir saldos, movimientos, comparaciones o un cambio concreto en una interfaz existente.</p>
+            <div className="canvas-guidance__actions">
+              {suggestedPrompts.slice(0, 2).map((prompt) => (
+                <button key={prompt} type="button" onClick={() => { setDraft(prompt); onShowChat?.(); }}>{prompt}</button>
+              ))}
+            </div>
+          </div>
+        ) : generatedInterface ? (
           <div className="canvas-result">
             <header className="canvas-result__header">
               <div>
                 <p className="canvas-result__overline">Análisis activo</p>
-                <h2>{activePrompt ?? sessionTitle ?? "Resultado financiero"}</h2>
+                <h2>{isHistoricalView ? "Revisión anterior" : isPreviousResult ? "Última vista válida disponible" : "Tu análisis financiero"}</h2>
+                {(activePrompt ?? sessionTitle) && !isHistoricalView ? (
+                  <details className="canvas-result__query">
+                    <summary>Ver petición original</summary>
+                    <p>{activePrompt ?? sessionTitle}</p>
+                  </details>
+                ) : null}
               </div>
               <div className="canvas-result__metadata" aria-label="Estado del resultado">
                 <span>Actualizado {formatUpdatedAt(generatedInterface.updatedAt)}</span>
-                {hasFinancialData ? <span>Datos actualizados</span> : null}
+                {hasFinancialData ? <span>{isHistoricalView ? "Solo lectura" : isPreviousResult ? "Datos de la vista conservada" : "Datos actualizados"}</span> : null}
               </div>
             </header>
             {isProcessing ? (
               <div className="canvas-result__activity">
                 <span className="canvas-result__activity-indicator" aria-hidden="true" />
                 <div>
-                  <strong>Actualizando este análisis</strong>
+                  <strong>Preparando cambios</strong>
                   <p>{activityMessage}</p>
                 </div>
               </div>
-            ) : null}
-            {answerSummary ? (
-              <section className="canvas-result__answer" aria-label="Conclusión principal" aria-live="polite">
-                <p className="canvas-result__overline">Conclusión</p>
-                <p>{answerSummary}</p>
-              </section>
             ) : null}
             {failure || errorMessage || status === "partial" || status === "cancelled" ? (
               <div ref={failureRef} className="canvas-result__degradation" data-kind={status === "cancelled" ? "cancelled" : status === "partial" ? "partial" : "error"} role="alert" tabIndex={-1}>
@@ -244,7 +243,7 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
                 </div>
               </div>
             ) : null}
-            <div className="canvas-result__surface">
+            <div className="canvas-result__surface" inert={isHistoricalView} aria-label={isHistoricalView ? "Interfaz anterior de solo lectura" : undefined}>
               <UIEventProvider key={activeAnalysisId}>
               <UIRenderer
                 data={generatedInterface.data}
@@ -255,7 +254,7 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
               />
               </UIEventProvider>
             </div>
-            {changeSummary && !isProcessing ? (
+            {changeSummary && !isProcessing && !isHistoricalView ? (
               <details className="canvas-result__changes">
                 <summary>Cómo se adaptó esta vista</summary>
                 <ul>
@@ -321,6 +320,7 @@ export function GenerativeCanvas({ showRuntimeDiagnostics = false }: { showRunti
                   {runtimeDiagnostics ? <div><dt>Stream</dt><dd>{formatPayloadSize(runtimeDiagnostics.streamedPayloadBytes)}</dd></div> : null}
                   {runtimeDiagnostics ? <div><dt>Eventos / patches</dt><dd>{runtimeDiagnostics.eventCount} / {runtimeDiagnostics.uiPatchCount}</dd></div> : null}
                   {frontendPerformance ? <div><dt>Renders frontend</dt><dd>{frontendPerformance.renderCount}</dd></div> : null}
+                  {frontendPerformance?.firstFeedbackPaintMs === undefined ? null : <div><dt>Primer feedback pintado</dt><dd>{frontendPerformance.firstFeedbackPaintMs} ms</dd></div>}
                   {frontendPerformance?.patchApplyP50Ms === undefined ? null : <div><dt>Aplicar patch p50</dt><dd>{frontendPerformance.patchApplyP50Ms} ms</dd></div>}
                   {frontendPerformance?.patchApplyP95Ms === undefined ? null : <div><dt>Aplicar patch p95</dt><dd>{frontendPerformance.patchApplyP95Ms} ms</dd></div>}
                   {frontendPerformance?.patchToPaintP50Ms === undefined ? null : <div><dt>Patch a pintura p50</dt><dd>{frontendPerformance.patchToPaintP50Ms} ms</dd></div>}

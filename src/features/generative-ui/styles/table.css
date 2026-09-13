@@ -42,6 +42,11 @@
   border-spacing: 0;
 }
 
+.ui-table[data-column-count="3"] table { min-width: 0; table-layout: fixed; }
+.ui-table[data-column-count="3"] th,
+.ui-table[data-column-count="3"] td { overflow-wrap: anywhere; }
+.ui-table[data-column-count="3"] .ui-table__cell--end { white-space: nowrap; }
+
 .ui-table caption {
   padding: var(--space-3) var(--space-4);
   color: var(--color-text-secondary);

@@ -62,8 +62,10 @@ import { restoreSessionUiSnapshot } from "../session/session-ui-snapshot";
 import { FrameCommitBatcher } from "../performance/frame-commit-batcher";
 import {
   FrontendPerformanceSampler,
+  isUsefulGeneratedInterface,
   type FrontendPerformanceSummary,
 } from "../performance/frontend-performance-sampler";
+import { isGuidanceOnly } from "../../workspace/presentation/is-guidance-only";
 
 interface GeneratedInterface {
   specification: UISpecification | null;
@@ -71,6 +73,42 @@ interface GeneratedInterface {
   revision: number;
   updatedAt: number;
   degradationReason?: "generation_interrupted" | "partial_data";
+}
+
+export interface ConversationTurn {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  revision?: number;
+  sources?: readonly string[];
+  controls?: readonly string[];
+  changes?: readonly string[];
+}
+
+interface TurnDetails {
+  sources: string[];
+  controls: string[];
+  changes: string[];
+}
+
+function collectControlLabels(specification: UISpecification | null): string[] {
+  if (!specification) return [];
+  const labels = new Set<string>();
+  const pending = [specification.root];
+  while (pending.length && labels.size < 8) {
+    const node = pending.pop()!;
+    if ("event" in node && "label" in node && typeof node.label === "string") labels.add(node.label);
+    if ("children" in node) pending.push(...node.children);
+    if (node.type === "tabs" || node.type === "accordion") node.items.forEach((item) => pending.push(...item.children));
+    else if (node.type === "repeat") {
+      pending.push(node.template);
+      if (node.empty) pending.push(node.empty);
+    } else if (node.type === "conditional") {
+      pending.push(node.then);
+      if (node.else) pending.push(node.else);
+    }
+  }
+  return [...labels];
 }
 
 export interface AnalysisHistoryItem {
@@ -87,6 +125,8 @@ interface AnalysisSnapshot extends AnalysisHistoryItem {
   generatedInterface: GeneratedInterface;
   messages: AgentUIMessage[];
   patchState: UIPatchState;
+  turnResults: Record<string, GeneratedInterface>;
+  turnDetails: Record<string, TurnDetails>;
   performance?: AgentPerformance;
   runtimeDiagnostics?: AgentSessionValue["runtimeDiagnostics"];
 }
@@ -96,6 +136,11 @@ interface AgentSessionValue {
   activityMessage: string;
   analysisHistory: readonly AnalysisHistoryItem[];
   answer: string;
+  conversationTurns: readonly ConversationTurn[];
+  focusedTurnId?: string;
+  focusTurn: (id: string) => void;
+  displayedInterface?: GeneratedInterface;
+  isHistoricalView: boolean;
   canRetry: boolean;
   changeSummary?: UIChangeSummary;
   correlationId?: string;
@@ -187,6 +232,13 @@ function restoreAnalysisSnapshot(snapshot: PersistedAnalysisSnapshot): AnalysisS
       },
       messages: messagesFromRestoredAnswer(snapshot),
       patchState: patchState.state,
+      turnResults: snapshot.answer ? { [`restored-${snapshot.id}`]: {
+        specification: patchState.state.specification,
+        data: dataState.data,
+        revision: patchState.state.revision,
+        updatedAt: snapshot.updatedAt,
+      } } : {},
+      turnDetails: {},
     };
   } catch {
     return null;
@@ -240,6 +292,10 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
   const [sessionTitle, setSessionTitle] = useState<string>();
   const [activeAnalysisId, setActiveAnalysisId] = useState<string>();
   const [analysisSnapshots, setAnalysisSnapshots] = useState<AnalysisSnapshot[]>([]);
+  const [turnResults, setTurnResults] = useState<Record<string, GeneratedInterface>>({});
+  const [turnDetails, setTurnDetails] = useState<Record<string, TurnDetails>>({});
+  const requestedSourcesRef = useRef<string[]>([]);
+  const [focusedTurnId, setFocusedTurnId] = useState<string>();
 
   const updateGeneratedInterface = setGeneratedInterface;
 
@@ -292,6 +348,9 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     hasPartialData?: boolean,
     scope: "conversation" | "ui" | "data_registry" | "payment" = "conversation",
   ) => {
+    if (scope === "ui" || scope === "data_registry") {
+      console.warn(`Agent stream validation failed: ${code} (${scope})`);
+    }
     if (code.includes("revision_conflict")) {
       synchronizationBlockedRef.current = true;
       if (sessionIdRef.current) conflictedSessionIdsRef.current.add(sessionIdRef.current);
@@ -347,6 +406,9 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
         });
         if (part.data.status !== "pending") isInteractionRequestRef.current = false;
       } else if (part.type === "data-dataRequest") {
+        if (!requestedSourcesRef.current.includes(part.data.label)) {
+          requestedSourcesRef.current = [...requestedSourcesRef.current, part.data.label].slice(0, 8);
+        }
         setActivityMessage(part.data.label);
         dispatchExperience({ type: "DATA_REQUESTED" });
       } else if (part.type === "data-dataAvailable") {
@@ -355,7 +417,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
           [part.data.key]: part.data.value,
         }, dataStateRef.current.revision);
         if (isFollowUpRequestRef.current) recordPendingChange("Se incorporaron nuevos datos al análisis.");
-        scheduleCurrentInterface();
+        if (!isFollowUpRequestRef.current) scheduleCurrentInterface();
       } else if (part.type === "data-dataPatch") {
         const result = applyDataRegistryPatch(dataStateRef.current, part.data);
         if (!result.success) {
@@ -366,7 +428,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
         }
         dataStateRef.current = result.state;
         if (isFollowUpRequestRef.current) recordPendingChange("Se actualizaron los datos vinculados.");
-        scheduleCurrentInterface();
+        if (!isFollowUpRequestRef.current) scheduleCurrentInterface();
       } else if (part.type === "data-status") {
         setActivityMessage(part.data.message);
         if (part.data.stage === "retrieving_data") dispatchExperience({ type: "DATA_REQUESTED" });
@@ -542,6 +604,9 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     setActiveAnalysisId(activeSnapshot.id);
     setSessionTitle(activeSnapshot.title);
     setMessages(activeSnapshot.messages);
+    setTurnResults(activeSnapshot.turnResults);
+    setTurnDetails(activeSnapshot.turnDetails);
+    setFocusedTurnId(undefined);
     updateGeneratedInterface(activeSnapshot.generatedInterface);
     setPendingNodeIds(new Set());
     setCanRetry(false);
@@ -559,6 +624,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
   useEffect(() => {
     const startedAt = renderStartedAtRef.current;
     if (!generatedInterface) return;
+    const isUsefulInterface = isUsefulGeneratedInterface(generatedInterface.specification);
     performanceSamplerRef.current.recordRender();
     const patchStarts = pendingPatchPaintStartsRef.current.splice(0);
     if (startedAt !== undefined) renderStartedAtRef.current = undefined;
@@ -569,7 +635,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
       if (startedAt !== undefined) {
         const frontendRenderLatencyMs = Math.max(0, Math.round((paintedAt - startedAt) * 100) / 100);
         frontendRenderLatencyRef.current = frontendRenderLatencyMs;
-        if (frontendTimeToFirstUsefulUiRef.current === undefined && clientRequestStartedAtRef.current !== undefined) {
+        if (isUsefulInterface && frontendTimeToFirstUsefulUiRef.current === undefined && clientRequestStartedAtRef.current !== undefined) {
           frontendTimeToFirstUsefulUiRef.current = Math.max(
             0,
             Math.round((paintedAt - clientRequestStartedAtRef.current) * 100) / 100,
@@ -593,6 +659,50 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
       .join("") ?? "";
   }, [messages, suppressedAnswerId]);
 
+  const conversationTurns = useMemo<ConversationTurn[]>(() => messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .map((message) => {
+      const result = turnResults[message.id];
+      const hasFinancialData = Object.keys(result?.data ?? {}).length > 0;
+      return {
+        id: message.id,
+        role: message.role as "user" | "assistant",
+        text: message.parts.filter((part) => part.type === "text").map((part) => part.text).join("").trim(),
+        ...(result && !isGuidanceOnly(result.specification, hasFinancialData) ? { revision: result.revision } : {}),
+        ...(turnDetails[message.id] ?? {}),
+      };
+    })
+    .filter((turn) => turn.text.length > 0 || turn.revision !== undefined), [messages, turnResults, turnDetails]);
+
+  useEffect(() => {
+    if (!generatedInterface || status !== "ready") return;
+    const assistantIndex = messages.findLastIndex((message) => message.role === "assistant");
+    if (assistantIndex < messages.findLastIndex((message) => message.role === "user")) return;
+    const assistantId = messages[assistantIndex]?.id;
+    if (!assistantId) return;
+    setTurnResults((current) => {
+      if (current[assistantId]?.updatedAt === generatedInterface.updatedAt) return current;
+      const entries = Object.entries({ ...current, [assistantId]: generatedInterface }).slice(-24);
+      return Object.fromEntries(entries);
+    });
+    const details: TurnDetails = {
+      sources: requestedSourcesRef.current,
+      controls: collectControlLabels(generatedInterface.specification),
+      changes: [...(changeSummary?.items ?? [])],
+    };
+    setTurnDetails((current) => JSON.stringify(current[assistantId]) === JSON.stringify(details)
+      ? current
+      : Object.fromEntries(Object.entries({ ...current, [assistantId]: details }).slice(-24)));
+  }, [changeSummary, generatedInterface, messages, status]);
+
+  const focusTurn = useCallback((id: string) => {
+    if (!turnResults[id]) return;
+    setFocusedTurnId(id);
+  }, [turnResults]);
+  const latestAssistantId = messages.findLast((message) => message.role === "assistant")?.id;
+  const isHistoricalView = Boolean(focusedTurnId && focusedTurnId !== latestAssistantId && turnResults[focusedTurnId]);
+  const displayedInterface = isHistoricalView && focusedTurnId ? turnResults[focusedTurnId] : generatedInterface;
+
   useEffect(() => {
     const id = activeAnalysisId;
     const title = sessionTitle;
@@ -610,6 +720,8 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
       generatedInterface,
       messages,
       patchState,
+      turnResults,
+      turnDetails,
       performance,
       runtimeDiagnostics,
     };
@@ -617,7 +729,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
       snapshot,
       ...current.filter((item) => item.id !== id),
     ].slice(0, MAX_ANALYSIS_HISTORY));
-  }, [activeAnalysisId, answer, changeSummary, correlationId, generatedInterface, messages, performance, runtimeDiagnostics, sessionTitle]);
+  }, [activeAnalysisId, answer, changeSummary, correlationId, generatedInterface, messages, performance, runtimeDiagnostics, sessionTitle, turnResults, turnDetails]);
 
   useEffect(() => {
     if (!hasAttemptedHydrationRef.current || analysisSnapshots.length === 0) return;
@@ -651,9 +763,12 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
       setActivityMessage("Este análisis necesita recuperar el snapshot autoritativo antes de continuar");
       return;
     }
+    const requestStartedAt = globalThis.performance.now();
     const submittedPrompt = useWorkspaceStore.getState().submitPrompt(prompt);
     if (!submittedPrompt) return;
     prompt = submittedPrompt;
+    setFocusedTurnId(undefined);
+    requestedSourcesRef.current = [];
     lastRequestKindRef.current = "prompt";
     lastPromptRef.current = prompt;
     interactionRegistryRef.current.clear();
@@ -670,7 +785,15 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     setCorrelationId(undefined);
     frontendRenderLatencyRef.current = undefined;
     frontendTimeToFirstUsefulUiRef.current = undefined;
-    clientRequestStartedAtRef.current = globalThis.performance.now();
+    clientRequestStartedAtRef.current = requestStartedAt;
+    // The submitting/updating state is local and does not wait for the API.
+    // The second frame is the first opportunity to measure an already painted
+    // feedback state, rather than merely the server's first event.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (clientRequestStartedAtRef.current !== requestStartedAt || document.visibilityState !== "visible") return;
+      performanceSamplerRef.current.recordFirstFeedbackPaint(globalThis.performance.now() - requestStartedAt);
+      setFrontendPerformance(performanceSamplerRef.current.snapshot());
+    }));
     const submittedAt = Date.now();
     const sessionId = sessionIdRef.current;
     const patchState = patchStateRef.current;
@@ -704,6 +827,8 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     frontendRenderLatencyRef.current = undefined;
     patchStateRef.current = undefined;
     dataStateRef.current = createDataRegistryPatchState();
+    setTurnResults({});
+    setTurnDetails({});
     updateGeneratedInterface(undefined);
     await sendMessage({ text: prompt }, { body: { submittedAt } });
   }, [discardBatchedCommit, messages, sendMessage, updateGeneratedInterface]);
@@ -741,6 +866,9 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     setActiveAnalysisId(undefined);
     setSessionTitle(undefined);
     setMessages([]);
+    setTurnResults({});
+    setTurnDetails({});
+    setFocusedTurnId(undefined);
     updateGeneratedInterface(undefined);
   }, [discardBatchedCommit, setMessages, stop, updateGeneratedInterface]);
 
@@ -761,6 +889,9 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     setActiveAnalysisId(snapshot.id);
     setSessionTitle(snapshot.title);
     setMessages(snapshot.messages);
+    setTurnResults(snapshot.turnResults);
+    setTurnDetails(snapshot.turnDetails);
+    setFocusedTurnId(undefined);
     updateGeneratedInterface(snapshot.generatedInterface);
     setPerformance(snapshot.performance);
     setRuntimeDiagnostics(snapshot.runtimeDiagnostics);
@@ -781,6 +912,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     lastInteractionIntentRef.current = intent;
     lastRequestKindRef.current = "interaction";
     isInteractionRequestRef.current = true;
+    requestedSourcesRef.current = [];
     isFollowUpRequestRef.current = true;
     pendingChangesRef.current = [];
     clientRequestStartedAtRef.current = globalThis.performance.now();
@@ -797,6 +929,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
   }, [dispatchExperience, messages, sendMessage]);
 
   const handleUIEvent = useCallback((event: LocalUIEvent) => {
+    if (isHistoricalView) return;
     const policy = classifyInteractionEvent(event.name);
     if (policy.delivery === "local") {
       if (event.name === "form.value.changed" && typeof event.value === "string") {
@@ -866,7 +999,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
       return;
     }
     dispatchAgentInteraction(intent.data);
-  }, [dispatchAgentInteraction, setError, status]);
+  }, [dispatchAgentInteraction, isHistoricalView, setError, status]);
 
   const testStaleSimulation = useCallback(() => {
     if (process.env.NODE_ENV !== "development" || window.location.pathname !== "/dev/ui-interaction-harness") return;
@@ -963,6 +1096,11 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     activityMessage,
     analysisHistory: analysisSnapshots.map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
     answer,
+    conversationTurns,
+    focusedTurnId,
+    focusTurn,
+    displayedInterface,
+    isHistoricalView,
     canRetry,
     changeSummary,
     correlationId,
@@ -983,7 +1121,7 @@ export function AgentSessionProvider({ children, ownerKey }: { children: ReactNo
     sendPrompt,
     sessionTitle,
     startNewSession,
-  }), [activeAnalysisId, activityMessage, analysisSnapshots, answer, canRetry, cancel, changeSummary, continueWithPartialData, correlationId, failure, frontendPerformance, generatedInterface, handleUIEvent, pendingNodeIds, performance, retryLastRequest, recoverSnapshot, testStaleSimulation, isRecoveringSnapshot, runtimeDiagnostics, selectAnalysis, sendPrompt, sessionTitle, startNewSession]);
+  }), [activeAnalysisId, activityMessage, analysisSnapshots, answer, conversationTurns, focusedTurnId, focusTurn, displayedInterface, isHistoricalView, canRetry, cancel, changeSummary, continueWithPartialData, correlationId, failure, frontendPerformance, generatedInterface, handleUIEvent, pendingNodeIds, performance, retryLastRequest, recoverSnapshot, testStaleSimulation, isRecoveringSnapshot, runtimeDiagnostics, selectAnalysis, sendPrompt, sessionTitle, startNewSession]);
 
   return <AgentSessionContext.Provider value={value}>{children}</AgentSessionContext.Provider>;
 }

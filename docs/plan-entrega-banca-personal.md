@@ -223,7 +223,7 @@ Estado: **cerrada para la demo local el 12 de septiembre de 2026**. Evidencia en
 
 Prioridad: alta, después de BP5 y antes del ensayo final BP7.
 
-Estado: **sólo planificado**. Esta sección no representa una optimización aplicada ni cinco pruebas ya ejecutadas. La referencia histórica de BP2 fue de 7.5–15.3 s de extremo a extremo, pero debe repetirse como línea base actual con el mismo código, seed y entorno que se usarán para la comparación.
+Estado: **cerrada y validada el 2026-09-13**. Evidencia y resultados pareados en [`docs/evidence/bp65-performance.md`](./evidence/bp65-performance.md). La mediana global de primera UI útil bajó de 12.76 s a 3.75 s (-70.6 %), la mediana final de 13.15 s a 12.66 s y las corridas completas pasaron de 12/15 a 15/15.
 
 ### Objetivo y límites
 

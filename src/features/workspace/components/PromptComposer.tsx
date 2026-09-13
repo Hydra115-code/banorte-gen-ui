@@ -8,6 +8,7 @@ import { useAgentSession } from "../../agent/components/AgentSessionProvider";
 import { startTranscription } from "../../voice/client/realtime-transcription";
 import { composeTranscriptDraft } from "../../voice/client/transcript-draft";
 import { voiceFailureMessage } from "../../voice/client/voice-failure-message";
+import { isGuidanceOnly } from "../presentation/is-guidance-only";
 
 const MAX_PROMPT_LENGTH = 2_000;
 type VoicePhase = "idle" | "connecting" | "listening" | "ready" | "error";
@@ -30,6 +31,7 @@ export function PromptComposer() {
   const isConnecting = voicePhase === "connecting";
   const isListening = voicePhase === "listening";
   const canSubmit = draft.trim().length > 0 && !isBusy;
+  const guidanceOnly = status === "ready" && isGuidanceOnly(generatedInterface?.specification, Object.keys(generatedInterface?.data ?? {}).length > 0);
 
   const stopVoiceInput = (nextPhase?: VoicePhase) => {
     voiceAttemptRef.current += 1;
@@ -139,7 +141,13 @@ export function PromptComposer() {
     <footer className="composer-region">
       {generatedInterface ? (
         <div className="composer-context">
-          <span><i aria-hidden="true" />Resultado listo · Puedes pedir más detalle</span>
+          <span><i aria-hidden="true" />{isBusy
+            ? "Vista anterior disponible · Preparando cambios"
+            : guidanceOnly
+              ? "Respuesta en el chat · Pide un análisis"
+            : status === "ready"
+              ? "Resultado listo · Puedes pedir más detalle"
+              : "Última vista válida disponible"}</span>
         </div>
       ) : null}
       <form className="composer" onSubmit={handleSubmit}>
@@ -149,9 +157,9 @@ export function PromptComposer() {
         <textarea
           id="financial-prompt"
           name="prompt"
-          rows={1}
+          rows={2}
           maxLength={MAX_PROMPT_LENGTH}
-          placeholder="Pregunta sobre tus cuentas…"
+          placeholder="Escribe tu consulta…"
           value={draft}
           disabled={isBusy}
           onChange={(event) => {

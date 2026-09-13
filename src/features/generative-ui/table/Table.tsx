@@ -100,7 +100,7 @@ export function Table({ spec, data, locale = "es-MX", currency = "MXN" }: TableP
   }
 
   return (
-    <div className={`ui-table ui-table--${spec.density ?? "comfortable"}`}>
+    <div className={`ui-table ui-table--${spec.density ?? "comfortable"}`} data-column-count={selection ? undefined : spec.columns.length}>
       {spec.filtering?.enabled ? (
         <div className="ui-table__toolbar">
           <label className="sr-only" htmlFor={`${selectionName}-filter`}>Filtrar tabla</label>

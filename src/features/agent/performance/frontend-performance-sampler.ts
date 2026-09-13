@@ -1,4 +1,5 @@
 export interface FrontendPerformanceSummary {
+  firstFeedbackPaintMs?: number;
   patchApplyP50Ms?: number;
   patchApplyP95Ms?: number;
   patchToPaintP50Ms?: number;
@@ -8,6 +9,12 @@ export interface FrontendPerformanceSummary {
 }
 
 const MAX_SAMPLES = 200;
+
+export function isUsefulGeneratedInterface(
+  specification: { root: { id?: string } } | null | undefined,
+) {
+  return Boolean(specification?.root.id && specification.root.id !== "provisional-root");
+}
 
 function percentile(values: readonly number[], quantile: number) {
   if (values.length === 0) return undefined;
@@ -20,6 +27,12 @@ export class FrontendPerformanceSampler {
   readonly #patchApply: number[] = [];
   readonly #patchToPaint: number[] = [];
   #renderCount = 0;
+  #firstFeedbackPaintMs: number | undefined;
+
+  recordFirstFeedbackPaint(durationMs: number) {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
+    this.#firstFeedbackPaintMs ??= Math.round(durationMs * 100) / 100;
+  }
 
   recordPatchApply(durationMs: number) {
     this.#record(this.#patchApply, durationMs);
@@ -37,10 +50,12 @@ export class FrontendPerformanceSampler {
     this.#patchApply.length = 0;
     this.#patchToPaint.length = 0;
     this.#renderCount = 0;
+    this.#firstFeedbackPaintMs = undefined;
   }
 
   snapshot(): FrontendPerformanceSummary {
     return {
+      firstFeedbackPaintMs: this.#firstFeedbackPaintMs,
       patchApplyP50Ms: percentile(this.#patchApply, 0.5),
       patchApplyP95Ms: percentile(this.#patchApply, 0.95),
       patchToPaintP50Ms: percentile(this.#patchToPaint, 0.5),

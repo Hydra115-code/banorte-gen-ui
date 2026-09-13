@@ -15,11 +15,8 @@ export function AnalysisHistory() {
   if (analysisHistory.length <= 1) return null;
 
   return (
-    <aside className="analysis-history" aria-label="Historial de análisis">
-      <div className="analysis-history__header">
-        <h2>Consultas</h2>
-        <span>{analysisHistory.length}</span>
-      </div>
+    <details className="analysis-history">
+      <summary>Consultas anteriores <span>{analysisHistory.length}</span></summary>
       <nav aria-label="Resultados anteriores">
         <ol>
           {analysisHistory.map((item) => {
@@ -40,6 +37,6 @@ export function AnalysisHistory() {
           })}
         </ol>
       </nav>
-    </aside>
+    </details>
   );
 }

@@ -3,9 +3,14 @@ import { performance } from "node:perf_hooks";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { FrameCommitBatcher } from "../src/features/agent/performance/frame-commit-batcher.ts";
-import { FrontendPerformanceSampler } from "../src/features/agent/performance/frontend-performance-sampler.ts";
+import {
+  FrontendPerformanceSampler,
+  isUsefulGeneratedInterface,
+} from "../src/features/agent/performance/frontend-performance-sampler.ts";
 import { buildPerformancePatches, buildPerformanceSpecification } from "../src/features/generative-ui/fixtures/f10-performance-fixture.ts";
 import { applyUIPatch, createUIPatchState } from "../src/features/generative-ui/patches/ui-patch-engine.ts";
+import { createNodeMotionSignature } from "../src/features/generative-ui/runtime/runtime-motion-signature.ts";
+import type { UINode } from "../src/features/generative-ui/schemas/layout-node.js";
 
 test("una ráfaga conserva sólo el snapshot más reciente por frame", () => {
   const callbacks = new Map<number, FrameRequestCallback>();
@@ -42,6 +47,8 @@ test("flush y discard nunca reproducen commits obsoletos", () => {
 
 test("el sampler calcula percentiles y limita memoria", () => {
   const sampler = new FrontendPerformanceSampler();
+  sampler.recordFirstFeedbackPaint(24.567);
+  sampler.recordFirstFeedbackPaint(800);
   for (let value = 1; value <= 250; value += 1) {
     sampler.recordPatchApply(value / 10);
     sampler.recordPatchToPaint(value);
@@ -53,6 +60,24 @@ test("el sampler calcula percentiles y limita memoria", () => {
   assert.equal(summary.patchApplyP95Ms, 24);
   assert.equal(summary.patchToPaintP95Ms, 240);
   assert.equal(summary.renderCount, 1);
+  assert.equal(summary.firstFeedbackPaintMs, 24.57);
+  sampler.reset();
+  assert.equal(sampler.snapshot().firstFeedbackPaintMs, undefined);
+});
+
+test("la métrica de UI útil no cuenta el provisional genérico", () => {
+  assert.equal(isUsefulGeneratedInterface({ root: { id: "provisional-root" } }), false);
+  assert.equal(isUsefulGeneratedInterface({ root: { id: "comparison-with-transactions" } }), true);
+  assert.equal(isUsefulGeneratedInterface(null), false);
+});
+
+test("una edición de un hijo sólo resalta su región y no el contenedor", () => {
+  const beforeMetric: UINode = { id: "metric", type: "text", content: "Antes", variant: "body" };
+  const afterMetric: UINode = { id: "metric", type: "text", content: "Después", variant: "body" };
+  const before: UINode = { id: "root", type: "section", ariaLabel: "Análisis", children: [beforeMetric] };
+  const after: UINode = { id: "root", type: "section", ariaLabel: "Análisis", children: [afterMetric] };
+  assert.equal(createNodeMotionSignature(before), createNodeMotionSignature(after));
+  assert.notEqual(createNodeMotionSignature(beforeMetric), createNodeMotionSignature(afterMetric));
 });
 
 test("el motor indexado cumple p95 menor a 100 ms con 421 nodos", () => {

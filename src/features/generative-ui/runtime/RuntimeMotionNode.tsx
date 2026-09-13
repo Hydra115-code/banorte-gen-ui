@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { m, useAnimationControls, useReducedMotion } from "motion/react";
 import type { UINode } from "../schemas/layout-node";
+import { createNodeMotionSignature } from "./runtime-motion-signature";
 import {
   reducedRuntimeMotionVariants,
   runtimeMotionVariants,
@@ -17,14 +18,6 @@ interface RuntimeMotionNodeProps {
 }
 
 export const INITIAL_RUNTIME_MOTION_STATE: RuntimeMotionVariant = "stable";
-
-export function createNodeMotionSignature(node: UINode) {
-  return JSON.stringify(node, (key, value: unknown) => (
-    key === "children" || key === "template" || key === "empty" || key === "then" || key === "else"
-      ? undefined
-      : value
-  ));
-}
 
 export function RuntimeMotionNode({ children, isPending = false, node, position }: RuntimeMotionNodeProps) {
   const controls = useAnimationControls();
