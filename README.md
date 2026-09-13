@@ -152,7 +152,6 @@ flowchart LR
     Front -->|sesión server-side| Eleven[ElevenLabs]
 ```
 
-En nube configura `AGENT_API_URL=https://backend.example.com/api/agent`, registra el origen exacto del frontend en el CORS del backend y mantiene todas las credenciales en el gestor de secretos de la plataforma.
 
 ## Validación
 
