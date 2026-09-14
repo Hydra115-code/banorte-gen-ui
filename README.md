@@ -116,7 +116,7 @@ No copies el `.env` de otra máquina ni subas secretos. El usuario se autentica 
 
 ## Ejecución local
 
-1. Arranca primero el backend en `127.0.0.1:3101` siguiendo su README.
+1. Arranca primero el backend en `127.0.0.1:3101` siguiendo el README.
 2. En este repositorio ejecuta:
 
 ```bash
@@ -137,11 +137,6 @@ pnpm start
 
 El despliegue necesita un runtime **Node.js** compatible con streaming y variables server-side; no debe exportarse como sitio completamente estático.
 
-## ¿Es obligatorio subirlo a la nube?
-
-**No.** El documento del reto deja el proveedor de infraestructura a libre elección. Exige una demo en vivo, un repositorio ejecutable, datos/APIs y documentación técnica; no impone Vercel, Supabase hosted ni otro proveedor concreto.
-
-Para evaluación remota sí es recomendable desplegarlo:
 
 ```mermaid
 flowchart LR
@@ -223,11 +218,3 @@ packages/contracts/              contrato compartido con el backend
 scripts/                         validaciones de contrato, UX, seguridad y rendimiento
 ```
 
-## Checklist de demo
-
-1. Backend y frontend reportan estado saludable.
-2. El usuario demo tiene exclusivamente datos sintéticos y RLS activa.
-3. Una pregunta abierta produce una UI adecuada, no una pantalla fija.
-4. Un filtro o edición conversacional modifica la vista existente.
-5. La interacción directa de la UI vuelve al agente y conserva continuidad.
-6. Ningún secreto aparece en DevTools, logs o repositorio.
